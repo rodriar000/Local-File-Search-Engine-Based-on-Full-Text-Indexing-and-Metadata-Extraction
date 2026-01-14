@@ -1,0 +1,5 @@
+This file simulates a log entry.
+[INFO] Application started
+[WARN] Low memory
+[ERROR] Connection failed
+Keywords: logging, debugging, system

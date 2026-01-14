@@ -1,0 +1,1 @@
+This is test file number 97 for indexing benchmark. It contains some keywords like elasticsearch, java, and search.

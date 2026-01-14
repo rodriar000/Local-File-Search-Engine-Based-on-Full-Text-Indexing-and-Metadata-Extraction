@@ -1,0 +1,9 @@
+{
+    "name": "Sample JSON",
+    "description": "This is a JSON file, which Tika can also parse as text.",
+    "keywords": [
+        "json",
+        "data",
+        "structure"
+    ]
+}

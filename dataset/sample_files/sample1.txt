@@ -1,0 +1,3 @@
+This is a sample text file for the File Search Engine.
+It contains keywords like Elasticsearch, Java, and Tika.
+The purpose is to verify indexing capabilities.
