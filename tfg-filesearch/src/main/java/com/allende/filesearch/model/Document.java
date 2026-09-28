@@ -21,6 +21,12 @@ public class Document {
     private String title;
     private Instant lastIndexedAt;
     private List<String> tags;
+    /** Whether scanned pages could be recognised (OCR) when this document was extracted. */
+    private boolean ocrAvailable;
+    /** DocumentExtractor.VERSION that produced this document; older versions are re-extracted. */
+    private int extractorVersion;
+    /** Why the content could not be read, if it could not; not stored in the index. */
+    private String extractionError;
 
     // Constructors
     public Document() {}
@@ -142,6 +148,30 @@ public class Document {
 
     public void setTags(List<String> tags) {
         this.tags = tags;
+    }
+
+    public boolean isOcrAvailable() {
+        return ocrAvailable;
+    }
+
+    public void setOcrAvailable(boolean ocrAvailable) {
+        this.ocrAvailable = ocrAvailable;
+    }
+
+    public int getExtractorVersion() {
+        return extractorVersion;
+    }
+
+    public void setExtractorVersion(int extractorVersion) {
+        this.extractorVersion = extractorVersion;
+    }
+
+    public String getExtractionError() {
+        return extractionError;
+    }
+
+    public void setExtractionError(String extractionError) {
+        this.extractionError = extractionError;
     }
 
     @Override

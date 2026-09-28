@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the packaged backend JAR end to end: Word, OpenDocument and RTF files
+# Checks the packaged backend JAR end to end: Word, OpenDocument, RTF, email and ZIP files
 # are extracted, indexed and found. Catches packaging mistakes (such as missing
 # Tika parser registrations) that unit tests running from classes cannot see.
 set -euo pipefail
@@ -24,6 +24,14 @@ with zipfile.ZipFile(f"{docs}/recurso.odt", "w") as z:
     z.writestr("META-INF/manifest.xml", '<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>')
     z.writestr("content.xml", '<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:text><text:p>Recurso de apelación sobre la cláusula suelo</text:p></office:text></office:body></office:document-content>')
 
+with open(f"{docs}/requerimiento.eml", "w") as f:
+    f.write("From: Ana <ana@despacho.es>\r\nTo: luis@cliente.com\r\nSubject: Requerimiento de pago\r\n"
+            "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"
+            "Le remitimos el burofax por las rentas impagadas.\r\n")
+
+with zipfile.ZipFile(f"{docs}/expediente.zip", "w") as z:
+    z.writestr("escritos/contestacion.txt", "Escrito de contestación a la demanda de reconvención")
+
 with open(f"{docs}/poder.rtf", "w") as f:
     f.write(r"{\rtf1\ansi Poder notarial otorgado en Sevilla\par}")
 PY
@@ -42,4 +50,6 @@ expect_hit() {
 expect_hit "desahucios" "demanda.docx"
 expect_hit "clausula" "recurso.odt"
 expect_hit "notarial" "poder.rtf"
+expect_hit "burofax" "requerimiento.eml"
+expect_hit "reconvencion" "expediente.zip"
 echo "Smoke test passed"

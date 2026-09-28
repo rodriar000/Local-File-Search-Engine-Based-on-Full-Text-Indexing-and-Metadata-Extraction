@@ -91,6 +91,23 @@ class DocumentIndexTest {
     }
 
     @Test
+    void previewsTheWholeDocumentWithEveryMatchMarked() throws Exception {
+        try (DocumentIndex index = indexWithSamples()) {
+            DocumentPreview preview = index.preview("/exp/garcia/demanda.pdf", "fianza desahucios");
+            assertThat(preview.document().getFilename()).isEqualTo("demanda.pdf");
+            assertThat(preview.text())
+                    .startsWith("Demanda de " + DocumentIndex.HIGHLIGHT_PRE + "desahucio" + DocumentIndex.HIGHLIGHT_POST)
+                    .contains(DocumentIndex.HIGHLIGHT_PRE + "fianza" + DocumentIndex.HIGHLIGHT_POST)
+                    .endsWith("mensualidades.");
+            assertThat(preview.truncated()).isFalse();
+
+            assertThat(index.preview("/exp/garcia/demanda.pdf", "").text()).doesNotContain(DocumentIndex.HIGHLIGHT_PRE);
+            assertThat(index.preview("/exp/garcia/demanda.pdf", "notas").text()).startsWith("Demanda de desahucio");
+            assertThat(index.preview("/etc/passwd", "root")).isNull();
+        }
+    }
+
+    @Test
     void appliesFilters() throws Exception {
         try (DocumentIndex index = indexWithSamples()) {
             SearchRequest byType = new SearchRequest("fianza", List.of("PDF"), null, null, null, null, 0, 10);

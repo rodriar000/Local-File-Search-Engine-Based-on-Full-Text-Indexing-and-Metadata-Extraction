@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Calendar, HardDrive, User, FileCode, FileJson, FileType, File } from 'lucide-react';
+import { FileText, Calendar, HardDrive, User, FileCode, FileJson, FileType, File, Mail, FileArchive, FileImage } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { formatBytes } from '../../lib/utils';
 import { SearchResult } from '../../types';
@@ -17,6 +17,14 @@ const getFileIcon = (extension: string) => {
         case 'txt': return <FileText className="w-5 h-5 text-gray-500" />;
         case 'json': return <FileJson className="w-5 h-5 text-yellow-500" />;
         case 'md': return <FileCode className="w-5 h-5 text-purple-500" />;
+        case 'msg':
+        case 'eml': return <Mail className="w-5 h-5 text-sky-600" />;
+        case 'zip': return <FileArchive className="w-5 h-5 text-amber-600" />;
+        case 'tif':
+        case 'tiff':
+        case 'jpg':
+        case 'jpeg':
+        case 'png': return <FileImage className="w-5 h-5 text-emerald-600" />;
         default: return <File className="w-5 h-5 text-gray-400" />;
     }
 };

@@ -1,328 +1,346 @@
 package com.allende.filesearch.tika;
 
+import com.allende.filesearch.model.Config;
 import com.allende.filesearch.model.Document;
 import com.allende.filesearch.utils.FileUtils;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
-import org.apache.tika.Tika;
+import org.apache.tika.config.TikaConfig;
+import org.apache.tika.exception.EncryptedDocumentException;
 import org.apache.tika.exception.TikaException;
+import org.apache.tika.exception.WriteLimitReachedException;
+import org.apache.tika.extractor.EmbeddedDocumentExtractor;
+import org.apache.tika.extractor.ParsingEmbeddedDocumentExtractor;
+import org.apache.tika.io.TikaInputStream;
+import org.apache.tika.metadata.Message;
 import org.apache.tika.metadata.Metadata;
-
+import org.apache.tika.metadata.TikaCoreProperties;
+import org.apache.tika.mime.MediaType;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.parser.Parser;
+import org.apache.tika.parser.ocr.TesseractOCRConfig;
 import org.apache.tika.parser.pdf.PDFParserConfig;
 import org.apache.tika.sax.BodyContentHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import java.io.BufferedInputStream;
-import java.io.FileInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Extracts content and metadata from files using Apache Tika.
- * COMPLETELY REWRITTEN for robust content extraction with fallbacks.
+ * Extracts text and metadata from a file with Apache Tika.
+ *
+ * <p>Documents inside other documents (email attachments, files in a ZIP) are
+ * read too and their text is added to the container's. Scanned pages are
+ * recognised with Tesseract when it is installed (see {@link OcrSupport}).
  */
 public class DocumentExtractor {
     private static final Logger logger = LoggerFactory.getLogger(DocumentExtractor.class);
-    private final Tika tika;
+
+    /**
+     * Bump when extraction changes in a way that should re-read files already
+     * indexed (new formats, better text). Stored with every document.
+     */
+    public static final int VERSION = 2;
+
+    public static final List<String> DEFAULT_EXTENSIONS = List.of(
+            "txt", "pdf", "docx", "doc", "rtf", "odt", "html", "htm", "xml", "md", "json", "csv",
+            "pptx", "ppt", "xlsx", "xls", "msg", "eml", "zip", "tif", "tiff", "jpg", "jpeg", "png");
+
+    /** Text kept per document; the rest of a huge file is dropped. */
+    static final int MAX_CHARS = 20_000_000;
+    /** Attachments and archive entries read per file (protects against archive bombs). */
+    static final int MAX_EMBEDDED = 1_000;
+    private static final long MAX_FILE_SIZE_BYTES = 100L * 1024 * 1024;
+    private static final int MAX_TITLE_CHARS = 500;
+    /** Containers whose images are attachments worth reading (e.g. a scanned JPG sent by email). */
+    private static final Set<String> ATTACHMENT_CONTAINERS = Set.of("eml", "msg", "zip");
+    private static final Set<String> PLAIN_TEXT = Set.of("txt", "md", "json", "csv", "xml", "html", "htm");
+
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]");
+    private static final Pattern HORIZONTAL_SPACE = Pattern.compile("[ \\t\\u00A0\\r]+");
+    private static final Pattern BLANK_LINES = Pattern.compile("\\n\\s*\\n(\\s*\\n)+");
+
     private final Parser parser;
     private final List<String> supportedExtensions;
+    private final Config.OcrConfig ocrConfig;
+    private final OcrSupport.Status ocrStatus;
 
-    // Use Integer.MAX_VALUE to avoid truncation - Tika will handle memory
-    // internally
-    private static final long MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
-    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]");
+    public DocumentExtractor(List<String> supportedExtensions, Config.OcrConfig ocrConfig) {
+        this.supportedExtensions = List.copyOf(supportedExtensions);
+        this.ocrConfig = ocrConfig != null ? ocrConfig : disabledOcr();
+        this.ocrStatus = OcrSupport.check(this.ocrConfig);
+        this.parser = createParser(this.ocrConfig, ocrStatus.available());
+        logger.info("Text extraction ready; OCR {}", ocrStatus.available() ? "enabled (" + this.ocrConfig.getLanguage() + ")"
+                : "not available: " + ocrStatus.reason());
+    }
 
+    /** Without OCR, e.g. for tests and tools that must not depend on Tesseract. */
     public DocumentExtractor(List<String> supportedExtensions) {
-        this.tika = new Tika();
-        this.parser = new AutoDetectParser();
-        this.supportedExtensions = supportedExtensions;
-
-        // Configure PDF Parser
-        PDFParserConfig pdfConfig = new PDFParserConfig();
-        pdfConfig.setExtractInlineImages(true); // Enable for OCR if Tesseract is available
-        pdfConfig.setSortByPosition(true);
-
-        logger.info("DocumentExtractor initialized with supported extensions: {}", supportedExtensions);
+        this(supportedExtensions, disabledOcr());
     }
 
     public DocumentExtractor() {
-        this(List.of("txt", "pdf", "docx", "doc", "html", "htm", "xml", "rtf", "odt",
-                "md", "json", "csv", "pptx", "ppt", "xlsx", "xls"));
+        this(DEFAULT_EXTENSIONS);
+    }
+
+    private static Config.OcrConfig disabledOcr() {
+        Config.OcrConfig config = new Config.OcrConfig();
+        config.setEnabled(false);
+        return config;
+    }
+
+    private static Parser createParser(Config.OcrConfig ocr, boolean ocrAvailable) {
+        String folder = ocr.getTesseractPath();
+        if (!ocrAvailable || folder == null || folder.isBlank()) {
+            return new AutoDetectParser();
+        }
+        // Tesseract's location is a parser setting, not a per-parse one.
+        String dir = Path.of(folder).toAbsolutePath() + java.io.File.separator;
+        String xml = "<properties><parsers>"
+                + "<parser class=\"org.apache.tika.parser.DefaultParser\">"
+                + "<parser-exclude class=\"org.apache.tika.parser.ocr.TesseractOCRParser\"/></parser>"
+                + "<parser class=\"org.apache.tika.parser.ocr.TesseractOCRParser\"><params>"
+                + "<param name=\"tesseractPath\" type=\"string\">" + escapeXml(dir) + "</param>"
+                + "</params></parser></parsers></properties>";
+        try {
+            return new AutoDetectParser(new TikaConfig(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))));
+        } catch (TikaException | IOException | SAXException e) {
+            logger.warn("Could not configure the OCR location, using the default: {}", e.getMessage());
+            return new AutoDetectParser();
+        }
+    }
+
+    public boolean isOcrAvailable() {
+        return ocrStatus.available();
+    }
+
+    public OcrSupport.Status ocrStatus() {
+        return ocrStatus;
+    }
+
+    /** Media types the parser can read, for the doctor command. */
+    public Set<MediaType> supportedTypes() {
+        return parser.getSupportedTypes(new ParseContext());
     }
 
     /**
-     * Extract document content and metadata from a file.
-     * Implements multiple fallback strategies for robust extraction.
+     * Reads a file. Never fails because of the content: a file that cannot be
+     * read (damaged, password protected) is returned without text, with the
+     * reason in {@link Document#getExtractionError()}, so it can still be found
+     * by name.
      *
-     * @param filePath Path to the file
-     * @return Document object with extracted content and metadata
-     * @throws IOException if file cannot be read
+     * @throws IOException if the file itself cannot be accessed
      */
     public Document extractDocument(Path filePath) throws IOException {
-        long startTime = System.currentTimeMillis();
-        logger.debug("Extracting document: {}", filePath);
+        long start = System.currentTimeMillis();
 
         Document doc = new Document();
         doc.setPath(filePath.toString());
         doc.setFilename(filePath.getFileName().toString());
         doc.setExtension(FileUtils.getExtension(doc.getFilename()));
+        doc.setExtractorVersion(VERSION);
+        doc.setOcrAvailable(ocrStatus.available());
 
-        // Get file attributes
         BasicFileAttributes attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
         doc.setSize(attrs.size());
         doc.setCreatedAt(attrs.creationTime().toInstant());
         doc.setModifiedAt(attrs.lastModifiedTime().toInstant());
+        doc.setLastIndexedAt(Instant.now());
+        doc.setContent("");
 
-        // Skip files that are too large
-        if (attrs.size() > MAX_FILE_SIZE_BYTES) {
-            logger.debug("File too large ({}MB), skipping content extraction: {}",
-                    attrs.size() / (1024 * 1024), filePath);
-            doc.setContent("");
-            doc.setLastIndexedAt(Instant.now());
+        if (attrs.size() == 0 || attrs.size() > MAX_FILE_SIZE_BYTES) {
             return doc;
         }
 
-        // Skip empty files
-        if (attrs.size() == 0) {
-            logger.debug("File is empty (0 bytes), skipping: {}", filePath);
-            doc.setContent("");
-            doc.setLastIndexedAt(Instant.now());
-            return doc;
-        }
-
-        // Calculate checksum
         try {
-            String checksum = FileUtils.calculateSHA256(filePath);
-            doc.setChecksumSha256(checksum);
+            doc.setChecksumSha256(FileUtils.calculateSHA256(filePath));
         } catch (IOException e) {
             logger.debug("Could not calculate checksum for {}: {}", filePath, e.getMessage());
         }
 
-        // Extract content with Tika (with fallbacks)
-        String extractedContent = extractContentWithFallbacks(filePath, doc.getExtension());
-
-        // Normalize content
-        extractedContent = normalizeContent(extractedContent);
-
-        doc.setContent(extractedContent);
-        doc.setLastIndexedAt(Instant.now());
-
-        // Detect language if possible
-        doc.setLanguage(detectLanguageFromContent(extractedContent));
-
-        long duration = System.currentTimeMillis() - startTime;
-
-        if (extractedContent == null || extractedContent.isEmpty()) {
-            logger.debug("No content extracted from: {} ({}ms)",
-                    filePath.getFileName(), duration);
-        } else {
-            logger.debug("Successfully extracted: {} → {} chars ({} bytes, {}ms)",
-                    filePath.getFileName(), extractedContent.length(), attrs.size(), duration);
+        Metadata metadata = new Metadata();
+        String text;
+        try {
+            text = parse(filePath, doc.getExtension(), metadata);
+        } catch (EncryptedDocumentException e) {
+            doc.setExtractionError("Password protected");
+            return doc;
+        } catch (TikaException | SAXException | RuntimeException e) {
+            text = PLAIN_TEXT.contains(lower(doc.getExtension())) ? Files.readString(filePath, StandardCharsets.UTF_8) : null;
+            if (text == null) {
+                doc.setExtractionError("Could not read the content (damaged or unsupported file)");
+                logger.debug("Could not parse {}: {}", filePath, e.toString());
+                return doc;
+            }
         }
 
+        String header = emailHeader(metadata);
+        doc.setContent(normalize(header.isEmpty() ? text : header + "\n\n" + text));
+        doc.setTitle(clean(metadata.get(TikaCoreProperties.TITLE)));
+        doc.setAuthor(clean(firstNonBlank(metadata.get(Message.MESSAGE_FROM), metadata.get(TikaCoreProperties.CREATOR))));
+        doc.setLanguage(detectLanguage(doc.getContent()));
+
+        logger.debug("Extracted {} chars from {} in {} ms", doc.getContent().length(), filePath,
+                System.currentTimeMillis() - start);
         return doc;
     }
 
-    /**
-     * Extract content with multiple fallback strategies.
-     */
-    private String extractContentWithFallbacks(Path filePath, String extension) {
-        String content = "";
-
-        // Strategy 1: Try Tika with full parser
-        try {
-            content = extractWithTika(filePath);
-            if (isValidContent(content)) {
-                return content;
-            }
-            logger.debug("Tika returned empty/invalid content, trying fallbacks...");
-        } catch (Exception e) {
-            logger.debug("Tika extraction failed for {}: {}, trying fallbacks...",
-                    filePath.getFileName(), e.getMessage());
-        }
-
-        // Strategy 2: For text-based formats, try direct reading
-        if (isTextBasedFormat(extension)) {
-            try {
-                content = readAsPlainText(filePath);
-                if (isValidContent(content)) {
-                    logger.debug("Fallback: Read as plain text successfully");
-                    return content;
-                }
-            } catch (Exception e) {
-                logger.debug("Plain text reading failed: {}", e.getMessage());
-            }
-        }
-
-        // Strategy 3: PDFBox Direct Fallback (Specific for PDF)
-        if ("pdf".equalsIgnoreCase(extension)) {
-            try {
-                content = extractWithPDFBox(filePath);
-                if (isValidContent(content)) {
-                    logger.debug("Fallback: PDFBox extraction successfully");
-                    return content;
-                }
-            } catch (Exception e) {
-                logger.debug("PDFBox extraction failed: {}", e.getMessage());
-            }
-        }
-
-        // Strategy 4: Try simple Tika.parseToString (simpler API)
-        try {
-            content = tika.parseToString(filePath.toFile());
-            if (isValidContent(content)) {
-                logger.debug("Fallback: Tika.parseToString succeeded");
-                return content;
-            }
-        } catch (Exception e) {
-            logger.debug("Tika.parseToString failed: {}", e.getMessage());
-        }
-
-        // All strategies failed
-        logger.debug("All extraction strategies failed for: {}", filePath.getFileName());
-        return "";
-    }
-
-    private boolean isValidContent(String content) {
-        return content != null && !content.trim().isEmpty() && content.trim().length() > 5;
-    }
-
-    /**
-     * Extract content using Tika's AutoDetectParser (main strategy).
-     */
-    private String extractWithTika(Path filePath) throws IOException, SAXException, TikaException {
-        Metadata metadata = new Metadata();
-        // Use -1 for unlimited content (Tika handles this properly)
-        BodyContentHandler handler = new BodyContentHandler(-1);
+    private String parse(Path file, String extension, Metadata metadata)
+            throws IOException, TikaException, SAXException {
         ParseContext context = new ParseContext();
+        context.set(Parser.class, parser);
+        context.set(EmbeddedDocumentExtractor.class,
+                new LimitedEmbeddedExtractor(context, ATTACHMENT_CONTAINERS.contains(lower(extension))));
 
-        // Add PDF configuration to context
-        PDFParserConfig pdfConfig = new PDFParserConfig();
-        pdfConfig.setExtractInlineImages(true);
-        pdfConfig.setSortByPosition(true);
-        context.set(PDFParserConfig.class, pdfConfig);
+        PDFParserConfig pdf = new PDFParserConfig();
+        pdf.setSortByPosition(true);
+        pdf.setExtractInlineImages(false);
+        pdf.setOcrStrategy(ocrStatus.available() ? PDFParserConfig.OCR_STRATEGY.AUTO : PDFParserConfig.OCR_STRATEGY.NO_OCR);
+        context.set(PDFParserConfig.class, pdf);
 
-        // CRITICAL: Use BufferedInputStream to ensure stream can be reset if needed
-        try (FileInputStream fileStream = new FileInputStream(filePath.toFile());
-                BufferedInputStream bufferedStream = new BufferedInputStream(fileStream)) {
-
-            logger.debug("Parsing with Tika: {} ({} bytes)",
-                    filePath.getFileName(), Files.size(filePath));
-
-            // Parse the document
-            parser.parse(bufferedStream, handler, metadata, context);
-
-            // Get the extracted text
-            String content = handler.toString();
-            return content;
+        TesseractOCRConfig tesseract = new TesseractOCRConfig();
+        tesseract.setSkipOcr(!ocrStatus.available());
+        if (ocrStatus.available()) {
+            tesseract.setLanguage(ocrConfig.getLanguage());
+            tesseract.setTimeoutSeconds(ocrConfig.getTimeoutSeconds());
         }
-    }
+        context.set(TesseractOCRConfig.class, tesseract);
 
-    /**
-     * Extract PDF content directly using PDFBox (Fallback).
-     */
-    private String extractWithPDFBox(Path filePath) throws IOException {
-        try (PDDocument document = PDDocument.load(filePath.toFile())) {
-            if (document.isEncrypted()) {
-                logger.debug("PDF is encrypted: {}", filePath);
-                return "";
+        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, file.getFileName().toString());
+        BodyContentHandler handler = new BodyContentHandler(MAX_CHARS);
+        try (InputStream in = TikaInputStream.get(file)) {
+            parser.parse(in, handler, metadata, context);
+        } catch (SAXException e) {
+            if (!WriteLimitReachedException.isWriteLimitReached(e)) {
+                throw e;
             }
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setSortByPosition(true);
-            return stripper.getText(document);
+            // Keep the first MAX_CHARS characters of a huge document.
+        }
+        return handler.toString();
+    }
+
+    /** Sender, recipients, subject and date of an email, so they can be searched and previewed. */
+    private static String emailHeader(Metadata metadata) {
+        String from = metadata.get(Message.MESSAGE_FROM);
+        if (from == null) {
+            return "";
+        }
+        List<String> lines = new ArrayList<>();
+        addLine(lines, "Asunto", metadata.get(TikaCoreProperties.TITLE));
+        addLine(lines, "De", from);
+        addLine(lines, "Para", String.join(", ", metadata.getValues(Message.MESSAGE_TO)));
+        addLine(lines, "CC", String.join(", ", metadata.getValues(Message.MESSAGE_CC)));
+        addLine(lines, "Fecha", metadata.get(TikaCoreProperties.CREATED));
+        return String.join("\n", lines);
+    }
+
+    private static void addLine(List<String> lines, String label, String value) {
+        if (value != null && !value.isBlank()) {
+            lines.add(label + ": " + value.trim());
         }
     }
 
-    /**
-     * Fallback: Read file as plain text (for TXT, MD, JSON, etc.).
-     */
-    private String readAsPlainText(Path filePath) throws IOException {
-        return Files.readString(filePath, StandardCharsets.UTF_8);
-    }
-
-    /**
-     * Normalize extracted content.
-     */
-    private String normalizeContent(String content) {
-        if (content == null)
+    /** Removes control characters and runs of spaces but keeps paragraphs, for the preview. */
+    static String normalize(String content) {
+        if (content == null) {
             return "";
-
-        // Remove control characters (null bytes, etc)
-        String normalized = CONTROL_CHARS.matcher(content).replaceAll("");
-
-        // Normalize whitespace (collapse multiple spaces/newlines)
-        normalized = normalized.replaceAll("\\s+", " ");
-
-        return normalized.trim();
+        }
+        String text = CONTROL_CHARS.matcher(content).replaceAll("");
+        text = HORIZONTAL_SPACE.matcher(text).replaceAll(" ");
+        text = text.replace(" \n", "\n").replace("\n ", "\n");
+        text = BLANK_LINES.matcher(text).replaceAll("\n\n");
+        return text.trim();
     }
 
-    /**
-     * Check if file format is text-based (can be read directly).
-     */
-    private boolean isTextBasedFormat(String extension) {
-        if (extension == null)
-            return false;
-        String ext = extension.toLowerCase();
-        return ext.equals("txt") || ext.equals("md") || ext.equals("json") ||
-                ext.equals("csv") || ext.equals("xml") || ext.equals("html") ||
-                ext.equals("htm") || ext.equals("log") || ext.equals("properties") ||
-                ext.equals("yaml") || ext.equals("yml");
+    private static String clean(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = CONTROL_CHARS.matcher(value).replaceAll("").trim();
+        return trimmed.length() > MAX_TITLE_CHARS ? trimmed.substring(0, MAX_TITLE_CHARS) : trimmed;
     }
 
-    /**
-     * Simple language detection based on content.
-     */
-    private String detectLanguageFromContent(String content) {
+    private static String firstNonBlank(String a, String b) {
+        return a != null && !a.isBlank() ? a : b;
+    }
+
+    private static String lower(String value) {
+        return value == null ? "" : value.toLowerCase();
+    }
+
+    private static String escapeXml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    /** Rough Spanish/English guess from common words. */
+    private static String detectLanguage(String content) {
         if (content == null || content.isEmpty()) {
             return "unknown";
         }
-
-        // Simple heuristic: check for common Spanish vs English words
-        String lowerContent = content.toLowerCase();
-        long spanishWords = countOccurrences(lowerContent,
-                new String[] { "el", "la", "de", "que", "y", "a", "en", "un", "ser", "se" });
-        long englishWords = countOccurrences(lowerContent,
-                new String[] { "the", "of", "and", "to", "a", "in", "is", "it", "you", "that" });
-
-        if (spanishWords > englishWords) {
-            return "es";
-        } else if (englishWords > spanishWords) {
-            return "en";
-        } else {
-            return "unknown";
-        }
+        String sample = " " + content.substring(0, Math.min(content.length(), 20_000)).toLowerCase()
+                .replaceAll("[^\\p{L}]+", " ") + " ";
+        int spanish = count(sample, " de ", " la ", " que ", " el ", " en ", " los ", " del ", " se ");
+        int english = count(sample, " the ", " of ", " and ", " to ", " in ", " is ", " that ", " for ");
+        return spanish > english ? "es" : english > spanish ? "en" : "unknown";
     }
 
-    private long countOccurrences(String text, String[] words) {
-        long count = 0;
+    private static int count(String text, String... words) {
+        int total = 0;
         for (String word : words) {
-            count += text.split("\\b" + word + "\\b").length - 1;
+            for (int i = text.indexOf(word); i >= 0; i = text.indexOf(word, i + 1)) {
+                total++;
+            }
         }
-        return count;
+        return total;
     }
 
-    /**
-     * Check if a file type is supported based on extension.
-     */
     public boolean isSupported(String extension) {
-        if (extension == null)
+        if (extension == null) {
             return false;
+        }
         for (String ext : supportedExtensions) {
             if (ext.equalsIgnoreCase(extension)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Reads embedded documents up to {@link #MAX_EMBEDDED} per file. Images
+     * inside ordinary documents (logos, signatures) are skipped; images that
+     * are attachments or archive entries are read, with OCR if available.
+     */
+    private static final class LimitedEmbeddedExtractor extends ParsingEmbeddedDocumentExtractor {
+        private final boolean readImages;
+        private int count;
+
+        LimitedEmbeddedExtractor(ParseContext context, boolean readImages) {
+            super(context);
+            this.readImages = readImages;
+        }
+
+        @Override
+        public boolean shouldParseEmbedded(Metadata metadata) {
+            if (++count > MAX_EMBEDDED) {
+                return false;
+            }
+            String type = metadata.get(Metadata.CONTENT_TYPE);
+            if (!readImages && type != null && type.startsWith("image/")) {
+                return false;
+            }
+            return super.shouldParseEmbedded(metadata);
+        }
     }
 }

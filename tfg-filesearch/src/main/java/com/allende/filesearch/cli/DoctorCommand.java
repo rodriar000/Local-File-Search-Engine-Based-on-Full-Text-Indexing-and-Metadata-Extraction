@@ -3,8 +3,8 @@ package com.allende.filesearch.cli;
 import com.allende.filesearch.index.DocumentIndex;
 import com.allende.filesearch.index.IndexSummary;
 import com.allende.filesearch.utils.FileUtils;
-import org.apache.tika.parser.AutoDetectParser;
-import org.apache.tika.parser.ParseContext;
+import com.allende.filesearch.tika.OcrSupport;
+import org.apache.tika.mime.MediaType;
 import picocli.CommandLine.Command;
 
 import java.nio.file.Files;
@@ -22,6 +22,9 @@ public class DoctorCommand implements Callable<Integer> {
             "application/rtf",
             "application/vnd.oasis.opendocument.text",
             "text/html",
+            "application/vnd.ms-outlook",
+            "message/rfc822",
+            "application/zip",
     };
 
     @Override
@@ -32,14 +35,22 @@ public class DoctorCommand implements Callable<Integer> {
 
         System.out.println("[INFO] Java " + System.getProperty("java.version"));
 
-        var supported = new AutoDetectParser().getSupportedTypes(new ParseContext());
+        DependencyContainer container = DependencyContainer.getInstance();
+        var supported = container.getDocumentExtractor().supportedTypes();
         for (String type : REQUIRED_TYPES) {
-            boolean ok = supported.contains(org.apache.tika.mime.MediaType.parse(type));
+            boolean ok = supported.contains(MediaType.parse(type));
             System.out.printf("[%-4s] Text extraction for %s%n", ok ? "OK" : "FAIL", type);
             allOk &= ok;
         }
 
-        DependencyContainer container = DependencyContainer.getInstance();
+        // Missing OCR is a warning: everything else works, scanned documents are found by name only.
+        OcrSupport.Status ocr = container.getDocumentExtractor().ocrStatus();
+        if (ocr.available()) {
+            System.out.println("[OK  ] OCR for scanned documents (" + container.getConfig().getOcr().getLanguage() + ")");
+        } else {
+            System.out.println("[WARN] OCR for scanned documents not available: " + ocr.reason());
+        }
+
         Path location = container.getIndexDirectory();
         System.out.println("[INFO] Index location: " + location);
         try (DocumentIndex index = container.openIndexReadOnly()) {

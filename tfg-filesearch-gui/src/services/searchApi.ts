@@ -1,4 +1,4 @@
-import { IndexStats, IndexStatus, SearchFilters, SearchResult } from '../types';
+import { DocumentPreviewData, IndexStats, IndexStatus, SearchFilters, SearchResult } from '../types';
 
 /**
  * Client for the local search backend. Requests go through the main process,
@@ -129,6 +129,13 @@ export async function search(query: string, filters: SearchFilters, from = 0, si
     const { status, data } = await apiRequest<ApiSearchResponse>('POST', '/api/search', toSearchBody(query, filters, from, size));
     assertOk(status, data, 'Search');
     return toSearchResult(data, query, filters, performance.now() - startTime);
+}
+
+export async function getPreview(path: string, query: string): Promise<DocumentPreviewData> {
+    const { status, data } = await apiRequest<DocumentPreviewData>('POST', '/api/preview', { path, query });
+    if (status === 404) throw new Error('This document is no longer in the index. Update the index in Settings.');
+    assertOk(status, data, 'Loading the preview');
+    return data;
 }
 
 // ------------------------------------------------------------- index info

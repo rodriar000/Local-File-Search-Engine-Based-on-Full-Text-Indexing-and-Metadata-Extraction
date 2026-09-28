@@ -26,9 +26,9 @@ public class DependencyContainer {
     private DependencyContainer() {
         this.config = ConfigLoader.load();
         List<String> extensions = config.getIndexing().getExtensions();
-        this.documentExtractor = extensions != null && !extensions.isEmpty()
-                ? new DocumentExtractor(extensions)
-                : new DocumentExtractor();
+        this.documentExtractor = new DocumentExtractor(
+                extensions != null && !extensions.isEmpty() ? extensions : DocumentExtractor.DEFAULT_EXTENSIONS,
+                config.getOcr());
         this.analyticsManager = new AnalyticsManager();
     }
 

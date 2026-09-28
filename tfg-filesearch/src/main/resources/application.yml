@@ -21,6 +21,17 @@ indexing:
     - ppt
     - xlsx
     - xls
+    # Email (Outlook and standard), with their attachments
+    - msg
+    - eml
+    # Documents inside ZIP archives
+    - zip
+    # Scanned images; their text is only read when OCR is available
+    - tif
+    - tiff
+    - jpg
+    - jpeg
+    - png
   maxFileSizeMb: 100
   # Supported forms: "**/<folder>/**" skips a folder anywhere, "**/<name>" skips a file name.
   # "*" works as a wildcard inside a name, e.g. "**/~$*" (Office lock files).
@@ -38,6 +49,15 @@ indexing:
     - "**/desktop.ini"
     - "**/~$*"
   threads: 4
+
+# Text recognition for scanned PDFs and images. Needs Tesseract with the
+# language data installed; without it these files are found by name only.
+ocr:
+  enabled: true
+  language: spa
+  # Folder containing the tesseract program; empty = look it up on the PATH
+  tesseractPath:
+  timeoutSeconds: 300
 
 search:
   defaultSize: 10

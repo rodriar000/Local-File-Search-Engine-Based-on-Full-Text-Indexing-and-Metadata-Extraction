@@ -139,6 +139,25 @@ class ApiServerTest {
     }
 
     @Test
+    void previewsIndexedDocumentsOnly() throws Exception {
+        Path demanda = docs.resolve("demanda.txt");
+        Files.writeString(demanda, "Demanda de desahucio.\n\nSe reclama la fianza y las rentas.");
+        Path outside = Files.writeString(tempDir.resolve("secreto.txt"), "no indexado");
+        post("/api/index", "{\"folder\":\"" + json(docs) + "\"}");
+        awaitIndexing();
+
+        JsonNode preview = json.readTree(post("/api/preview",
+                "{\"path\":\"" + json(demanda) + "\",\"query\":\"fianza\"}").body());
+        assertThat(preview.path("filename").asText()).isEqualTo("demanda.txt");
+        assertThat(preview.path("text").asText())
+                .contains("Demanda de desahucio.\n\nSe reclama la " + DocumentIndex.HIGHLIGHT_PRE + "fianza");
+        assertThat(preview.path("truncated").asBoolean()).isFalse();
+
+        assertThat(post("/api/preview", "{\"path\":\"" + json(outside) + "\"}").statusCode()).isEqualTo(404);
+        assertThat(post("/api/preview", "{}").statusCode()).isEqualTo(400);
+    }
+
+    @Test
     void switchingFoldersRemovesTheOldOne() throws Exception {
         Files.writeString(docs.resolve("demanda.txt"), "Demanda de desahucio");
         Path other = Files.createDirectories(tempDir.resolve("otro"));

@@ -101,7 +101,7 @@ public final class IndexSynchronizer {
         int unchanged = 0;
         for (Map.Entry<Path, FileState> candidate : scan.files.entrySet()) {
             FileState known = indexed.get(candidate.getKey().toString());
-            if (candidate.getValue().equals(known)) {
+            if (isUpToDate(known, candidate.getValue())) {
                 unchanged++;
             } else {
                 toExtract.add(candidate.getKey());
@@ -128,7 +128,10 @@ public final class IndexSynchronizer {
                         long started = System.currentTimeMillis();
                         Document doc = extractor.extractDocument(file);
                         index.upsert(doc);
-                        if (doc.getContent() == null || doc.getContent().isBlank()) {
+                        if (doc.getExtractionError() != null) {
+                            // Still indexed, so it can be found by name; reported so the user knows why.
+                            recordFailure(failures, failed, key, doc.getExtractionError());
+                        } else if (doc.getContent() == null || doc.getContent().isBlank()) {
                             withoutText.incrementAndGet();
                         }
                         (indexed.containsKey(key) ? updated : added).incrementAndGet();
@@ -213,6 +216,21 @@ public final class IndexSynchronizer {
         return removed;
     }
 
+    /**
+     * An indexed entry can be kept when the file has not changed and it was
+     * extracted by the current extractor, unless it has no text and OCR has
+     * become available since (a scanned document that can now be read).
+     */
+    private boolean isUpToDate(FileState known, FileState current) {
+        if (known == null || !known.sameFileAs(current.size(), current.modifiedAtMillis())) {
+            return false;
+        }
+        if (known.extractorVersion() < DocumentExtractor.VERSION) {
+            return false;
+        }
+        return known.hasText() || known.ocrAvailable() || !extractor.isOcrAvailable();
+    }
+
     public ExclusionRules exclusions() {
         return exclusions;
     }
@@ -258,7 +276,7 @@ public final class IndexSynchronizer {
                     scan.tooLarge++;
                     return FileVisitResult.CONTINUE;
                 }
-                scan.files.put(file, new FileState(attrs.size(), attrs.lastModifiedTime().toMillis()));
+                scan.files.put(file, new FileState(attrs.size(), attrs.lastModifiedTime().toMillis(), 0, false, false));
                 return FileVisitResult.CONTINUE;
             }
 
@@ -282,9 +300,12 @@ public final class IndexSynchronizer {
     }
 
     private static void recordFailure(List<FailedFile> failures, AtomicInteger failed, String path, Throwable e) {
+        recordFailure(failures, failed, path, e.getMessage() != null ? e.getClass().getSimpleName() + ": " + e.getMessage()
+                : e.getClass().getSimpleName());
+    }
+
+    private static void recordFailure(List<FailedFile> failures, AtomicInteger failed, String path, String reason) {
         failed.incrementAndGet();
-        String reason = e.getMessage() != null ? e.getClass().getSimpleName() + ": " + e.getMessage()
-                : e.getClass().getSimpleName();
         if (failures.size() < MAX_REPORTED_FAILURES) {
             failures.add(new FailedFile(path, reason));
         }

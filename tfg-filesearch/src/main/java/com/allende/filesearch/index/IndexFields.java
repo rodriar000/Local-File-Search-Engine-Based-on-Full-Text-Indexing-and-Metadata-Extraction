@@ -14,6 +14,12 @@ public final class IndexFields {
     public static final String AUTHOR = "author";
     public static final String TITLE = "title";
     public static final String LAST_INDEXED_AT = "last_indexed_at";
+    /** Doc values: 1 when text was extracted. */
+    public static final String HAS_TEXT = "has_text";
+    /** Doc values: 1 when OCR was available at extraction time. */
+    public static final String OCR_AVAILABLE = "ocr_available";
+    /** Doc values: DocumentExtractor.VERSION that produced the entry. */
+    public static final String EXTRACTOR_VERSION = "extractor_version";
 
     private IndexFields() {
     }

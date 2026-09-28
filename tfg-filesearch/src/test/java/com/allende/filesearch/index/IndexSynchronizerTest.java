@@ -136,6 +136,33 @@ class IndexSynchronizerTest {
     }
 
     @Test
+    void reportsUnreadableFilesButKeepsThemFindableByName() throws Exception {
+        write("roto.pdf", "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 9 0 R >> endobj\n%%truncated");
+
+        SyncReport report = sync();
+
+        assertThat(report.failed()).isEqualTo(1);
+        assertThat(report.failures().get(0).reason()).contains("Could not read");
+        assertThat(report.withoutText()).isZero();
+        assertThat(hits("roto")).isEqualTo(1);
+    }
+
+    @Test
+    void reExtractsEntriesFromOlderExtractorVersions() throws Exception {
+        Path file = write("demanda.txt", "Demanda de desahucio");
+        sync();
+        com.allende.filesearch.model.Document old = new DocumentExtractor().extractDocument(file);
+        old.setExtractorVersion(DocumentExtractor.VERSION - 1);
+        index.upsert(old);
+        index.commit();
+
+        SyncReport report = sync();
+
+        assertThat(report.updated()).isEqualTo(1);
+        assertThat(sync().unchanged()).isEqualTo(1);
+    }
+
+    @Test
     void cancellationKeepsExistingEntries() throws Exception {
         write("a.txt", "primero");
         sync();

@@ -6,6 +6,7 @@ import { Filter, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { stripHighlight } from '../shared/highlight';
+import { DocumentPreview } from '../components/search/DocumentPreview';
 
 export const SearchPage: React.FC = () => {
     const {
@@ -16,6 +17,7 @@ export const SearchPage: React.FC = () => {
 
     const [showFilters, setShowFilters] = useState(false);
     const [openError, setOpenError] = useState<string | null>(null);
+    const [previewPath, setPreviewPath] = useState<string | null>(null);
 
     const openResult = async (path: string) => {
         if (!window.electronAPI) return;
@@ -64,7 +66,7 @@ export const SearchPage: React.FC = () => {
         }
     };
 
-    const extensions = ['pdf', 'docx', 'txt', 'md', 'json'];
+    const extensions = ['pdf', 'docx', 'doc', 'msg', 'eml', 'zip', 'txt'];
 
     return (
         <div className="h-full flex flex-col">
@@ -164,8 +166,17 @@ export const SearchPage: React.FC = () => {
             <ResultsList
                 results={results}
                 loading={loading}
-                onResultClick={(hit) => openResult(hit.document.path)}
+                onResultClick={(hit) => setPreviewPath(hit.document.path)}
             />
+
+            {previewPath && (
+                <DocumentPreview
+                    path={previewPath}
+                    query={query}
+                    onClose={() => setPreviewPath(null)}
+                    onOpen={openResult}
+                />
+            )}
         </div>
     );
 };

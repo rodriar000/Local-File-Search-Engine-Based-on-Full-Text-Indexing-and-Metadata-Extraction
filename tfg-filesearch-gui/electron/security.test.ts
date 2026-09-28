@@ -14,6 +14,7 @@ describe('isAllowedApiRequest', () => {
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: { folder: '/home/ana/Expedientes' } })).toBe(true);
         expect(isAllowedApiRequest({ method: 'GET', path: '/api/index/status' })).toBe(true);
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/index/cancel' })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/preview', body: { path: '/exp/a.pdf', query: 'fianza' } })).toBe(true);
     });
 
     it('refuses unknown routes and wrong methods', () => {
@@ -33,6 +34,8 @@ describe('isAllowedApiRequest', () => {
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/search', body: huge })).toBe(false);
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: { folder: 'relative' } })).toBe(false);
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: {} })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/preview', body: {} })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/preview', body: { path: '/a.pdf', query: 1 } })).toBe(false);
     });
 
     it('rejects malformed input', () => {
