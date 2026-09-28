@@ -123,3 +123,24 @@ export interface IndexStats {
     health?: string;
     fileTypes?: Record<string, number>;
 }
+
+/** Licence status from the main process (see electron/license.ts). */
+export interface LicenseDetails {
+    id: string;
+    customer: string;
+    seats: number;
+    issuedAt: string;
+    expiresAt: string | null;
+}
+
+export type LicenseState =
+    | { kind: 'trial'; daysLeft: number; endsAt: string }
+    | { kind: 'trial-ended'; endedAt: string }
+    | { kind: 'licensed'; details: LicenseDetails; daysLeft: number | null }
+    | { kind: 'expired'; details: LicenseDetails };
+
+export interface LicenseInstallResult {
+    installed: boolean;
+    error?: string;
+    state: LicenseState;
+}

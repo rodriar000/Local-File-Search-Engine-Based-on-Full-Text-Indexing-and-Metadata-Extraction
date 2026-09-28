@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toSearchBody, toSearchResult } from './searchApi';
+import { ipcErrorMessage, toSearchBody, toSearchResult } from './searchApi';
 
 describe('toSearchBody', () => {
     it('converts sizes in MB and whole local days', () => {
@@ -50,5 +50,13 @@ describe('toSearchResult', () => {
         expect(result.hits[0].document).toMatchObject({ path: '/exp/demanda.pdf', modified_at: '2026-01-01T10:00:00Z' });
         expect(result.hits[0].highlight).toEqual({ content: ['la fianza'] });
         expect(result.hits[1].highlight).toBeUndefined();
+    });
+});
+
+describe('ipcErrorMessage', () => {
+    it('keeps only the reason given by the main process', () => {
+        expect(ipcErrorMessage(new Error("Error invoking remote method 'api:request': Error: The trial period has ended."))).toBe(
+            'The trial period has ended.');
+        expect(ipcErrorMessage(new Error('Plain'))).toBe('Plain');
     });
 });

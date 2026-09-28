@@ -33,7 +33,7 @@ The project is organized into three primary modules:
 
 ## 3. Prerequisites
 
-To build and execute the system, the following runtime environments are required:
+End users need none of this: the Windows installer (section 4.3) includes its own Java runtime and Tesseract with Spanish data. To build and develop the system, the following are required:
 
 *   **Java Development Kit (JDK)**: Version 17 or higher.
 *   **Node.js**: Version 20.19 or higher.
@@ -67,6 +67,31 @@ npm run typecheck   # TypeScript
 npm test            # unit tests (Vitest)
 npm run build:web   # production bundle without packaging
 ```
+
+### 4.3 Windows Installer
+CI builds it on every push (job `windows-installer`, artifact `windows-installer`). To build it by hand on Windows, from Git Bash:
+
+```bash
+(cd tfg-filesearch && mvn -B package -DskipTests)
+choco install tesseract -y                                   # once
+scripts/bundle-runtime.sh "/c/Program Files/Tesseract-OCR"   # Java runtime (jlink, JDK 17+) + Tesseract + Spanish data
+cd tfg-filesearch-gui && npm ci && npm run build             # -> release/FileSearch-Setup-<version>.exe
+```
+
+The installer is per user and needs no administrator rights. Documents, the index (`%USERPROFILE%\.filesearch`) and the licence are kept when the app is uninstalled. The installer is not code-signed yet, so Windows SmartScreen warns on first run; electron-builder signs it automatically once a certificate is provided through `CSC_LINK` / `CSC_KEY_PASSWORD`.
+
+### 4.4 Licences
+The app runs as a 30-day trial from its first launch. A licence is a small `.lic` file signed with an Ed25519 key and checked offline; install it from **Settings > Licence**. When a trial or licence ends, search, preview and opening documents keep working and only updating the index stops, so no firm ever loses access to its documents.
+
+```bash
+cd tfg-filesearch-gui
+npm run license -- keygen --private ~/filesearch-signing-key.pem   # once; commit electron/license-key.ts
+npm run license -- issue --private ~/filesearch-signing-key.pem \
+    --customer "Despacho Pérez Abogados" --seats 3 --expires 2027-09-30 --out perez.lic
+npm run license -- inspect perez.lic
+```
+
+Keep the private key out of the repository and backed up: whoever has it can issue licences, and losing it means reissuing every licence with a new key. Until a key is generated, every copy runs as a trial. Offline checks stop honest overuse, not a determined attacker: the number of computers is shown but not enforced, and the trial start date is stored in the user's profile.
 
 ## 5. Execution Guide
 
@@ -108,7 +133,7 @@ cd tfg-filesearch-gui
 npm run dev
 ```
 
-This opens the Electron window, which starts the backend from step 4.1 (Java 17+ must be on the `PATH`; set `FILESEARCH_JAR` or `FILESEARCH_JAVA` to use other locations). From **Settings**, choose the documents folder and press **Index Now**; afterwards the app catches up with changes every time it starts. Clicking a result opens a preview of its text with every match highlighted (Enter / Shift+Enter jump between matches); **Open** opens the file itself. Search needs the desktop app: the plain browser preview has no backend.
+This opens the Electron window, which starts the backend from step 4.1 (with the Java runtime from `bundle-runtime.sh` if it was run, otherwise Java 17+ from the `PATH`; set `FILESEARCH_JAR` or `FILESEARCH_JAVA` to use other locations). From **Settings**, choose the documents folder and press **Index Now**; afterwards the app catches up with changes every time it starts. Clicking a result opens a preview of its text with every match highlighted (Enter / Shift+Enter jump between matches); **Open** opens the file itself. Search needs the desktop app: the plain browser preview has no backend.
 
 ## 6. Benchmarks
 

@@ -9,5 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveExport: (payload: { type: string, data: string, defaultPath?: string }) => ipcRenderer.invoke('export:save', payload),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     getAnalytics: () => ipcRenderer.invoke('get-analytics'),
+    getLicense: () => ipcRenderer.invoke('license:status'),
+    installLicense: () => ipcRenderer.invoke('license:install'),
     apiRequest: (request: { method: string, path: string, body?: unknown }) => ipcRenderer.invoke('api:request', request),
 })

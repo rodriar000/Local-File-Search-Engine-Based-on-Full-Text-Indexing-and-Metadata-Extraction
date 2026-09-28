@@ -5,12 +5,15 @@
 set -euo pipefail
 
 JAR="${1:-tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar}"
+# Set JAVA to test with another runtime, e.g. the one bundled with the installer.
+JAVA="${JAVA:-java}"
+PYTHON="${PYTHON:-python3}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export FILESEARCH_HOME="$WORK/home"
 mkdir -p "$WORK/docs"
 
-python3 - "$WORK/docs" <<'PY'
+"$PYTHON" - "$WORK/docs" <<'PY'
 import sys, zipfile
 docs = sys.argv[1]
 
@@ -36,11 +39,11 @@ with open(f"{docs}/poder.rtf", "w") as f:
     f.write(r"{\rtf1\ansi Poder notarial otorgado en Sevilla\par}")
 PY
 
-java -jar "$JAR" update-index "$WORK/docs"
+"$JAVA" -jar "$JAR" update-index "$WORK/docs"
 
 expect_hit() {
     local query="$1" file="$2"
-    if ! java -jar "$JAR" search "$query" --output json | grep -q "$file"; then
+    if ! "$JAVA" -jar "$JAR" search "$query" --output json | grep -q "$file"; then
         echo "FAIL: searching \"$query\" did not find $file" >&2
         exit 1
     fi

@@ -26,6 +26,8 @@ export interface BackendResponse {
 export interface BackendOptions {
     jarPath: string
     javaPath?: string
+    /** Added to the engine's environment. */
+    env?: Record<string, string>
 }
 
 export class Backend {
@@ -97,7 +99,7 @@ export class Backend {
 
         this.token = randomBytes(32).toString('hex')
         const child = spawn(this.options.javaPath ?? 'java', ['-jar', this.options.jarPath, 'serve'], {
-            env: { ...process.env, FILESEARCH_API_TOKEN: this.token },
+            env: { ...process.env, ...this.options.env, FILESEARCH_API_TOKEN: this.token },
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
         })

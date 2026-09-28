@@ -28,9 +28,20 @@ export class IndexingAlreadyRunningError extends Error {
 
 type Method = 'GET' | 'POST';
 
+/** Electron prefixes errors thrown by the main process with the IPC channel; users only need the reason. */
+export function ipcErrorMessage(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '');
+}
+
 async function apiRequest<T>(method: Method, path: string, body?: unknown): Promise<{ status: number; data: T }> {
     if (!window.electronAPI) throw new SearchEngineUnavailableError();
-    const response = await window.electronAPI.apiRequest({ method, path, body });
+    let response: ApiBridgeResponse;
+    try {
+        response = await window.electronAPI.apiRequest({ method, path, body });
+    } catch (error) {
+        throw new Error(ipcErrorMessage(error));
+    }
     if (response.status === 0) throw new SearchEngineUnavailableError(response.error);
     return { status: response.status, data: response.data as T };
 }

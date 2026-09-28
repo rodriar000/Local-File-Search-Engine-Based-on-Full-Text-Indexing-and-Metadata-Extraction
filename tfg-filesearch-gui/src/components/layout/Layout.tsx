@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { Outlet } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/useAppStore';
+import { LicenseBanner } from '../LicenseBanner';
 
 export const Layout: React.FC = () => {
     const { isSidebarOpen } = useAppStore();
@@ -17,6 +18,7 @@ export const Layout: React.FC = () => {
                     isSidebarOpen ? "ml-64" : "ml-20"
                 )}
             >
+                <LicenseBanner />
                 <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                     <div className="max-w-7xl mx-auto w-full">
                         <Outlet />

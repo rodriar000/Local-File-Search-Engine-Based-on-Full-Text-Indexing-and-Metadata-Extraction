@@ -15,6 +15,8 @@ interface ElectronAPI {
     saveExport: (payload: { type: string, data: string, defaultPath?: string }) => Promise<string | null>;
     selectFolder: () => Promise<string | null>;
     getAnalytics: () => Promise<import('./types').SystemAnalytics>;
+    getLicense: () => Promise<import('./types').LicenseState>;
+    installLicense: () => Promise<import('./types').LicenseInstallResult>;
     apiRequest: (request: { method: 'GET' | 'POST', path: string, body?: unknown }) => Promise<ApiBridgeResponse>;
 }
 
