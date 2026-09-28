@@ -69,3 +69,13 @@ release/
 
 # Benchmark outputs
 reports/
+
+# Node / Electron build output
+node_modules/
+tfg-filesearch-gui/dist/
+tfg-filesearch-gui/dist-electron/
+tfg-filesearch-gui/build/runtime/
+tfg-filesearch-gui/release/
+
+# Licence signing keys must never be committed
+*.pem
