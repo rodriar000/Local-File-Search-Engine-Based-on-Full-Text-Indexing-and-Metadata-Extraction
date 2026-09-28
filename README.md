@@ -80,6 +80,8 @@ cd tfg-filesearch-gui && npm ci && npm run build             # -> release/FileSe
 
 The installer is per user and needs no administrator rights. Documents, the index (`%USERPROFILE%\.filesearch`) and the licence are kept when the app is uninstalled. The installer is not code-signed yet, so Windows SmartScreen warns on first run; electron-builder signs it automatically once a certificate is provided through `CSC_LINK` / `CSC_KEY_PASSWORD`.
 
+To install it at a law firm for a pilot, follow [docs/piloto/guia-piloto.md](docs/piloto/guia-piloto.md) (in Spanish).
+
 ### 4.4 Licences
 The app runs as a 30-day trial from its first launch. A licence is a small `.lic` file signed with an Ed25519 key and checked offline; install it from **Settings > Licence**. When a trial or licence ends, search, preview and opening documents keep working and only updating the index stops, so no firm ever loses access to its documents.
 

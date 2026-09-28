@@ -13,15 +13,15 @@ export function licenseNotice(license: LicenseState | null): { text: string; blo
     switch (license.kind) {
         case 'trial':
             return license.daysLeft <= TRIAL_WARNING_DAYS
-                ? { text: `Trial version: ${license.daysLeft} ${license.daysLeft === 1 ? 'day' : 'days'} left.`, blocking: false }
+                ? { text: `Versión de prueba: ${license.daysLeft === 1 ? 'queda 1 día' : `quedan ${license.daysLeft} días`}.`, blocking: false }
                 : null;
         case 'trial-ended':
-            return { text: 'The trial period has ended. Search keeps working, but the index is no longer updated.', blocking: true };
+            return { text: 'El periodo de prueba ha terminado. Puedes seguir buscando, pero el índice ya no se actualiza.', blocking: true };
         case 'expired':
-            return { text: 'Your licence has ended. Search keeps working, but the index is no longer updated.', blocking: true };
+            return { text: 'La licencia ha caducado. Puedes seguir buscando, pero el índice ya no se actualiza.', blocking: true };
         case 'licensed':
             return license.daysLeft !== null && license.daysLeft <= RENEWAL_WARNING_DAYS
-                ? { text: `Your licence ends in ${license.daysLeft} ${license.daysLeft === 1 ? 'day' : 'days'}.`, blocking: false }
+                ? { text: `La licencia caduca en ${license.daysLeft === 1 ? '1 día' : `${license.daysLeft} días`}.`, blocking: false }
                 : null;
     }
 }
@@ -47,7 +47,7 @@ export const LicenseBanner: React.FC = () => {
         >
             <KeyRound className="w-4 h-4 shrink-0" />
             <span className="flex-1">{notice.text}</span>
-            <Link to="/settings" className="font-medium underline underline-offset-2">Install a licence</Link>
+            <Link to="/settings" className="font-medium underline underline-offset-2">Instalar licencia</Link>
         </div>
     );
 };

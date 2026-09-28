@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Database, FolderOpen, XCircle, ShieldCheck, KeyRound } from 'lucide-react';
+import { RefreshCw, Database, FolderOpen, XCircle, ShieldCheck, KeyRound, LifeBuoy } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { cn } from '../lib/utils';
 import { cancelIndexing, getIndexStatus, startIndexing } from '../services/searchApi';
@@ -64,9 +64,20 @@ export const SettingsPage: React.FC = () => {
             const result = await window.electronAPI.installLicense();
             setLicense(result.state);
             if (result.error) setLicenseMessage({ text: result.error, error: true });
-            else if (result.installed) setLicenseMessage({ text: 'Licence installed.', error: false });
+            else if (result.installed) setLicenseMessage({ text: 'Licencia instalada.', error: false });
         } catch (err) {
             setLicenseMessage({ text: err instanceof Error ? err.message : String(err), error: true });
+        }
+    };
+
+    const [supportInfo, setSupportInfo] = useState<string | null>(null);
+
+    const handleCopySupportInfo = async () => {
+        if (!window.electronAPI) return;
+        try {
+            setSupportInfo(await window.electronAPI.copySupportInfo());
+        } catch (err) {
+            setSupportInfo(err instanceof Error ? err.message : String(err));
         }
     };
 
@@ -81,8 +92,8 @@ export const SettingsPage: React.FC = () => {
     return (
         <div className="max-w-3xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
-                <p className="text-gray-500 dark:text-gray-400">Choose the documents to search</p>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Configuración</h1>
+                <p className="text-gray-500 dark:text-gray-400">Elige los documentos en los que buscar</p>
             </div>
 
             <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
@@ -90,15 +101,15 @@ export const SettingsPage: React.FC = () => {
                     <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-orange-600 dark:text-orange-400">
                         <Database className="w-5 h-5" />
                     </div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documents</h2>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documentos</h2>
                 </div>
 
                 <div className="space-y-6">
                     <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
                         <div className="min-w-0">
-                            <h3 className="font-medium text-gray-900 dark:text-white">Documents folder</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">Carpeta de documentos</h3>
                             <p className="text-sm text-gray-500 dark:text-gray-400 truncate" title={indexFolder ?? undefined}>
-                                {indexFolder ?? 'No folder selected yet'}
+                                {indexFolder ?? 'Aún no has elegido ninguna carpeta'}
                             </p>
                         </div>
                         <button
@@ -107,15 +118,15 @@ export const SettingsPage: React.FC = () => {
                             className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <FolderOpen className="w-4 h-4" />
-                            Choose Folder
+                            Elegir carpeta
                         </button>
                     </div>
 
                     <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Update index</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">Actualizar índice</h3>
                             <p className="text-sm text-gray-500 dark:text-gray-400">
-                                Reads new and changed documents and forgets deleted ones. Unchanged files are skipped.
+                                Lee los documentos nuevos y modificados y olvida los borrados. Los que no han cambiado no se vuelven a leer.
                             </p>
                         </div>
                         {running ? (
@@ -124,7 +135,7 @@ export const SettingsPage: React.FC = () => {
                                 className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
                             >
                                 <XCircle className="w-4 h-4" />
-                                Cancel
+                                Cancelar
                             </button>
                         ) : (
                             <button
@@ -138,7 +149,7 @@ export const SettingsPage: React.FC = () => {
                                 )}
                             >
                                 <RefreshCw className="w-4 h-4" />
-                                Index Now
+                                Actualizar ahora
                             </button>
                         )}
                     </div>
@@ -156,7 +167,7 @@ export const SettingsPage: React.FC = () => {
                     <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600 dark:text-blue-400">
                         <KeyRound className="w-5 h-5" />
                     </div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Licence</h2>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Licencia</h2>
                 </div>
                 <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
                     <div className="min-w-0 text-sm text-gray-600 dark:text-gray-300">
@@ -167,7 +178,7 @@ export const SettingsPage: React.FC = () => {
                         disabled={!window.electronAPI}
                         className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Install Licence…
+                        Instalar licencia…
                     </button>
                 </div>
                 {licenseMessage && (
@@ -180,34 +191,63 @@ export const SettingsPage: React.FC = () => {
                 )}
             </section>
 
+            <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg text-green-600 dark:text-green-400">
+                            <LifeBuoy className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Soporte</h2>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                Copia el estado de la aplicación para enviarlo si algo no funciona. No incluye nombres ni contenido de documentos.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleCopySupportInfo}
+                        disabled={!window.electronAPI}
+                        className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Copiar información
+                    </button>
+                </div>
+                {supportInfo && (
+                    <div className="mt-4 space-y-2">
+                        <p role="status" className="text-sm text-green-700 dark:text-green-400">Copiado al portapapeles:</p>
+                        <pre className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 text-xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap">{supportInfo}</pre>
+                    </div>
+                )}
+            </section>
+
             <section className="flex items-start gap-3 p-4 text-sm text-gray-600 dark:text-gray-300">
                 <ShieldCheck className="w-5 h-5 shrink-0 text-green-600 dark:text-green-400" />
                 <p>
-                    Documents are read and indexed on this computer only. The search engine accepts connections from
-                    this application alone and nothing is sent over the network.
+                    Los documentos se leen e indexan solo en este ordenador. El buscador solo acepta conexiones de
+                    esta aplicación y no se envía nada por la red.
                 </p>
             </section>
         </div>
     );
 };
 
-const formatDate = (date: string) => new Date(date.length === 10 ? `${date}T12:00:00Z` : date).toLocaleDateString();
+const formatDate = (date: string) => new Date(date.length === 10 ? `${date}T12:00:00Z` : date).toLocaleDateString('es-ES');
 
 const LicenseSummary: React.FC<{ license: LicenseState | null }> = ({ license }) => {
-    if (!license) return <p>Checking licence…</p>;
+    if (!license) return <p>Comprobando licencia…</p>;
     switch (license.kind) {
         case 'trial':
             return (
                 <>
-                    <h3 className="font-medium text-gray-900 dark:text-white">Trial version</h3>
-                    <p>{license.daysLeft} {license.daysLeft === 1 ? 'day' : 'days'} left, until {formatDate(license.endsAt)}.</p>
+                    <h3 className="font-medium text-gray-900 dark:text-white">Versión de prueba</h3>
+                    <p>{license.daysLeft === 1 ? 'Queda 1 día' : `Quedan ${license.daysLeft} días`}, hasta el {formatDate(license.endsAt)}.</p>
                 </>
             );
         case 'trial-ended':
             return (
                 <>
-                    <h3 className="font-medium text-gray-900 dark:text-white">Trial ended</h3>
-                    <p>Search keeps working, but the index is no longer updated until a licence is installed.</p>
+                    <h3 className="font-medium text-gray-900 dark:text-white">Prueba terminada</h3>
+                    <p>Puedes seguir buscando, pero el índice no se actualizará hasta que instales una licencia.</p>
                 </>
             );
         case 'licensed':
@@ -218,13 +258,13 @@ const LicenseSummary: React.FC<{ license: LicenseState | null }> = ({ license })
                         {license.details.customer}
                     </h3>
                     <p>
-                        Licence {license.details.id} · {license.details.seats} {license.details.seats === 1 ? 'computer' : 'computers'} ·{' '}
+                        Licencia {license.details.id} · {license.details.seats} {license.details.seats === 1 ? 'ordenador' : 'ordenadores'} ·{' '}
                         {license.details.expiresAt === null
-                            ? 'no end date'
-                            : `${license.kind === 'expired' ? 'ended' : 'valid until'} ${formatDate(license.details.expiresAt)}`}
+                            ? 'sin caducidad'
+                            : `${license.kind === 'expired' ? 'caducó el' : 'válida hasta el'} ${formatDate(license.details.expiresAt)}`}
                     </p>
                     {license.kind === 'expired' && (
-                        <p className="text-amber-700 dark:text-amber-400">Search keeps working, but the index is no longer updated.</p>
+                        <p className="text-amber-700 dark:text-amber-400">Puedes seguir buscando, pero el índice ya no se actualiza.</p>
                     )}
                 </>
             );

@@ -4,11 +4,14 @@ import com.allende.filesearch.model.Config;
 import com.allende.filesearch.model.Document;
 import com.allende.filesearch.model.IndexingMetrics;
 import com.allende.filesearch.tika.DocumentExtractor;
+import com.allende.filesearch.tika.OcrSupport;
 import com.allende.filesearch.utils.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -74,6 +77,11 @@ public final class IndexSynchronizer {
     private final long maxFileSizeBytes;
     private final int threads;
     private final int commitEvery;
+
+    /** Whether scanned documents can be read, for the support information. */
+    public OcrSupport.Status ocrStatus() {
+        return extractor.ocrStatus();
+    }
 
     public IndexSynchronizer(DocumentIndex index, DocumentExtractor extractor, Config config) {
         this.index = index;
@@ -300,8 +308,25 @@ public final class IndexSynchronizer {
     }
 
     private static void recordFailure(List<FailedFile> failures, AtomicInteger failed, String path, Throwable e) {
-        recordFailure(failures, failed, path, e.getMessage() != null ? e.getClass().getSimpleName() + ": " + e.getMessage()
-                : e.getClass().getSimpleName());
+        logger.debug("Could not index {}", path, e);
+        recordFailure(failures, failed, path, describe(e));
+    }
+
+    /** Why a file could not be indexed, in words a user can act on (the details go to the debug log). */
+    static String describe(Throwable e) {
+        if (e instanceof AccessDeniedException) {
+            return "Sin permiso para leer el archivo";
+        }
+        if (e instanceof NoSuchFileException) {
+            return "El archivo ya no existe";
+        }
+        if (e instanceof FileSystemException) {
+            return "El archivo está en uso por otro programa o no se puede abrir";
+        }
+        if (e instanceof IOException) {
+            return "Error al leer el archivo";
+        }
+        return DocumentExtractor.UNREADABLE;
     }
 
     private static void recordFailure(List<FailedFile> failures, AtomicInteger failed, String path, String reason) {

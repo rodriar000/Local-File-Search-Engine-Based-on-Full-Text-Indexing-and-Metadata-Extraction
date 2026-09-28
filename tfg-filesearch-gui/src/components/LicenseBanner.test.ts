@@ -11,9 +11,9 @@ describe('licenseNotice', () => {
     });
 
     it('warns before the end and says what still works afterwards', () => {
-        expect(licenseNotice({ kind: 'trial', daysLeft: 1, endsAt: '' })).toEqual({ text: 'Trial version: 1 day left.', blocking: false });
+        expect(licenseNotice({ kind: 'trial', daysLeft: 1, endsAt: '' })).toEqual({ text: 'Versión de prueba: queda 1 día.', blocking: false });
         expect(licenseNotice({ kind: 'licensed', details, daysLeft: 10 })?.blocking).toBe(false);
-        expect(licenseNotice({ kind: 'trial-ended', endedAt: '' })?.text).toContain('Search keeps working');
+        expect(licenseNotice({ kind: 'trial-ended', endedAt: '' })?.text).toContain('Puedes seguir buscando');
         expect(licenseNotice({ kind: 'expired', details })?.blocking).toBe(true);
     });
 });

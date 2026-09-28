@@ -7,6 +7,7 @@ import com.allende.filesearch.index.IndexSynchronizer;
 import com.allende.filesearch.index.SearchRequest;
 import com.allende.filesearch.model.Document;
 import com.allende.filesearch.model.SearchResult;
+import com.allende.filesearch.tika.OcrSupport;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -51,6 +52,7 @@ public final class ApiServer implements AutoCloseable {
     private final DocumentIndex index;
     private final AnalyticsManager analytics;
     private final IndexingJob indexing;
+    private final IndexSynchronizer synchronizer;
     private final byte[] expectedAuthorization;
     private final ObjectMapper json = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -68,6 +70,7 @@ public final class ApiServer implements AutoCloseable {
         }
         this.index = index;
         this.analytics = analytics;
+        this.synchronizer = synchronizer;
         this.indexing = new IndexingJob(synchronizer, analytics);
         this.expectedAuthorization = ("Bearer " + token).getBytes(StandardCharsets.UTF_8);
     }
@@ -120,7 +123,7 @@ public final class ApiServer implements AutoCloseable {
         String method = exchange.getRequestMethod();
         String path = exchange.getRequestURI().getPath();
         switch (method + " " + path) {
-            case "GET /api/health" -> send(exchange, 200, Map.of("status", "ok"));
+            case "GET /api/health" -> send(exchange, 200, health());
             case "GET /api/stats" -> send(exchange, 200, index.summary());
             case "POST /api/search" -> send(exchange, 200, search(readJson(exchange, SearchBody.class)));
             case "POST /api/preview" -> preview(exchange, readJson(exchange, PreviewBody.class));
@@ -135,6 +138,16 @@ public final class ApiServer implements AutoCloseable {
     }
 
     // --------------------------------------------------------------- endpoints
+
+    /** No document names or contents: it is copied into support requests. */
+    record HealthResponse(String status, String java, String os, boolean ocrAvailable, String ocrProblem) {
+    }
+
+    private HealthResponse health() {
+        OcrSupport.Status ocr = synchronizer.ocrStatus();
+        return new HealthResponse("ok", System.getProperty("java.version"),
+                System.getProperty("os.name") + " " + System.getProperty("os.version"), ocr.available(), ocr.reason());
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SearchBody(String query, List<String> extensions, Long sizeMinBytes, Long sizeMaxBytes,

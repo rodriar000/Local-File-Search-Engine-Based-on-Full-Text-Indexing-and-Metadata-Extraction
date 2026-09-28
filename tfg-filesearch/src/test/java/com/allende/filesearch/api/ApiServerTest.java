@@ -90,6 +90,16 @@ class ApiServerTest {
     }
 
     @Test
+    void healthSaysWhetherScannedDocumentsCanBeRead() throws Exception {
+        JsonNode health = json.readTree(get("/api/health").body());
+        assertThat(health.path("status").asText()).isEqualTo("ok");
+        assertThat(health.path("java").asText()).isNotBlank();
+        // The test extractor has OCR switched off.
+        assertThat(health.path("ocrAvailable").asBoolean()).isFalse();
+        assertThat(health.path("ocrProblem").asText()).isNotBlank();
+    }
+
+    @Test
     void refusesBrowserRequestsAndForeignHosts() throws Exception {
         HttpResponse<String> fromPage = send(request("/api/health")
                 .header("Authorization", "Bearer " + TOKEN).header("Origin", "https://evil.example").GET().build());

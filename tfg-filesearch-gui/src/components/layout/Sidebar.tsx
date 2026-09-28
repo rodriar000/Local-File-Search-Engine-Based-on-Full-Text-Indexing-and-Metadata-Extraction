@@ -1,15 +1,14 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Search, BarChart2, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Search, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../../store/useAppStore';
 import { cn } from '../../lib/utils';
 
 const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-    { icon: Search, label: 'Search', path: '/search' },
-    { icon: BarChart2, label: 'Statistics', path: '/stats' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
+    { icon: LayoutDashboard, label: 'Inicio', path: '/' },
+    { icon: Search, label: 'Buscar', path: '/search' },
+    { icon: Settings, label: 'Configuración', path: '/settings' },
 ];
 
 export const Sidebar: React.FC = () => {
@@ -77,6 +76,7 @@ export const Sidebar: React.FC = () => {
             <div className="p-4 border-t border-gray-100 dark:border-gray-700/50">
                 <button
                     onClick={toggleSidebar}
+                    aria-label={isSidebarOpen ? 'Contraer menú' : 'Expandir menú'}
                     className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 transition-colors"
                 >
                     {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}

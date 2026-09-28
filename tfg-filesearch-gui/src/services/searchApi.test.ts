@@ -55,8 +55,8 @@ describe('toSearchResult', () => {
 
 describe('ipcErrorMessage', () => {
     it('keeps only the reason given by the main process', () => {
-        expect(ipcErrorMessage(new Error("Error invoking remote method 'api:request': Error: The trial period has ended."))).toBe(
-            'The trial period has ended.');
+        expect(ipcErrorMessage(new Error("Error invoking remote method 'api:request': Error: El periodo de prueba ha terminado."))).toBe(
+            'El periodo de prueba ha terminado.');
         expect(ipcErrorMessage(new Error('Plain'))).toBe('Plain');
     });
 });

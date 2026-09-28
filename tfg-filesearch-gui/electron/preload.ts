@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     getAnalytics: () => ipcRenderer.invoke('get-analytics'),
     getLicense: () => ipcRenderer.invoke('license:status'),
+    copySupportInfo: () => ipcRenderer.invoke('support:copy-info'),
     installLicense: () => ipcRenderer.invoke('license:install'),
     apiRequest: (request: { method: string, path: string, body?: unknown }) => ipcRenderer.invoke('api:request', request),
 })
