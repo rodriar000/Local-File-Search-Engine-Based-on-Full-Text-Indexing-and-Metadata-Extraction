@@ -1,63 +1,52 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ElasticsearchService } from '../services/elasticsearch';
-import { AppConfig, SearchFilters, SearchResult } from '../types';
+import { useAppStore } from '../store/useAppStore';
+import { SearchFilters, SearchResult } from '../types';
 
-const DEFAULT_CONFIG: AppConfig = {
-    elasticsearch: {
-        url: 'http://localhost:9200',
-        indexName: 'filesearch'
-    }
-};
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function useSearch() {
+    const config = useAppStore((state) => state.config);
     const [query, setQuery] = useState('');
     const [filters, setFilters] = useState<SearchFilters>({ extensions: [] });
     const [results, setResults] = useState<SearchResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [config, setConfig] = useState<AppConfig>(() => {
-        try {
-            const saved = localStorage.getItem('appConfig');
-            return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
-        } catch {
-            return DEFAULT_CONFIG;
-        }
-    });
+    const latestRequest = useRef(0);
 
-    // Persist config
+    const searchService = useMemo(
+        () => new ElasticsearchService(config.elasticsearch),
+        [config.elasticsearch.url, config.elasticsearch.indexName],
+    );
+
     useEffect(() => {
-        localStorage.setItem('appConfig', JSON.stringify(config));
-    }, [config]);
-
-    const searchService = new ElasticsearchService(config.elasticsearch);
-
-    const performSearch = useCallback(async (searchQuery: string, searchFilters: SearchFilters) => {
-        if (!searchQuery.trim() && searchFilters.extensions.length === 0) {
+        if (!query.trim() && filters.extensions.length === 0) {
+            latestRequest.current++;
             setResults(null);
+            setError(null);
+            setLoading(false);
             return;
         }
 
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await searchService.search(searchQuery, searchFilters);
-            setResults(res);
-        } catch (err) {
-            console.error(err);
-            setError('Could not connect to search engine.');
-            setResults(null);
-        } finally {
-            setLoading(false);
-        }
-    }, [config]); // Re-create when config changes
+        const timer = setTimeout(async () => {
+            // Ignore responses that arrive after a newer search was started.
+            const requestId = ++latestRequest.current;
+            setLoading(true);
+            setError(null);
+            try {
+                const res = await searchService.search(query, filters);
+                if (requestId === latestRequest.current) setResults(res);
+            } catch (err) {
+                if (requestId !== latestRequest.current) return;
+                setError(err instanceof Error ? err.message : 'Could not connect to the search engine.');
+                setResults(null);
+            } finally {
+                if (requestId === latestRequest.current) setLoading(false);
+            }
+        }, SEARCH_DEBOUNCE_MS);
 
-    // Debounce search
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            performSearch(query, filters);
-        }, 300);
         return () => clearTimeout(timer);
-    }, [query, filters, performSearch]);
+    }, [query, filters, searchService]);
 
     return {
         query,
@@ -67,7 +56,5 @@ export function useSearch() {
         results,
         loading,
         error,
-        config,
-        setConfig
     };
 }

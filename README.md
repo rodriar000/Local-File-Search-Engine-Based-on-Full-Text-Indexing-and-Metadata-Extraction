@@ -28,10 +28,10 @@ The project is organized into three primary modules:
 To build and execute the system, the following runtime environments are required:
 
 *   **Java Development Kit (JDK)**: Version 17 or higher.
-*   **Node.js**: Version 18 (LTS) or higher.
+*   **Node.js**: Version 20.19 or higher.
 *   **Maven**: Version 3.8 or higher (for backend build).
 *   **Python**: Version 3.9 or higher (for benchmarking scripts).
-*   **Elasticsearch**: Version 7.17.x (must be running on `localhost:9200`).
+*   **Elasticsearch**: Version 8.x, running on this computer (`localhost:9200`). The desktop app refuses any address that is not on this computer.
 
 ## 4. Installation and Build
 
@@ -50,7 +50,15 @@ Navigate to the frontend directory and install dependencies:
 
 ```bash
 cd tfg-filesearch-gui
-npm install
+npm ci
+```
+
+Quality checks for the frontend:
+
+```bash
+npm run typecheck   # TypeScript
+npm test            # unit tests (Vitest)
+npm run build:web   # production bundle without packaging
 ```
 
 ## 5. Execution Guide
@@ -76,14 +84,14 @@ java -jar tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar docto
 ```
 
 ### 5.3 GUI Execution (Search)
-Launch the frontend development server:
+Launch the desktop app in development mode:
 
 ```bash
 cd tfg-filesearch-gui
 npm run dev
 ```
 
-Access the interface via a web browser at `http://localhost:5173`.
+This opens the Electron window. From **Settings** you can choose a documents folder and index it (requires the backend JAR from step 4.1 and Java on the `PATH`). The browser preview at `http://localhost:5173` also works for searching during development; it reaches Elasticsearch through the Vite proxy (`VITE_DEV_ELASTIC_URL` in `.env`, see `.env.example`).
 
 ## 6. Experimental Evaluation
 
@@ -99,10 +107,8 @@ python3 scripts/dataset_runner.py --config config/s1_validation.yaml
 
 Outputs are generated in the `reports/` directory in JSON format.
 
-## 7. License and Academic Integrity
+## 7. License
 
-This software is provided for academic and educational purposes as part of the evaluation for the Computer Engineering degree.
-
-This project is **Open Source** software released. You are free to use, modify, and distribute this software in accordance with the license terms.
+This software is proprietary. See [LICENSE](LICENSE). All rights reserved.
 
 *Copyright (c) 2026 Rodrigo Allende Rial*

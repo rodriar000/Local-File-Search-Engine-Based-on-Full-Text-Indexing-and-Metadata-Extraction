@@ -1,33 +1,52 @@
 import React, { useState } from 'react';
-import { Save, RefreshCw, Database, Server } from 'lucide-react';
+import { Save, RefreshCw, Database, Server, FolderOpen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { motion } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { isLoopbackHttpUrl, isValidIndexName } from '../shared/esTarget';
 
 export const SettingsPage: React.FC = () => {
-    const { config, setConfig } = useAppStore();
+    const { config, setConfig, indexFolder, setIndexFolder } = useAppStore();
     const [localConfig, setLocalConfig] = useState(config);
+    const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
     const [reindexing, setReindexing] = useState(false);
     const [reindexOutput, setReindexOutput] = useState('');
 
     const handleSave = () => {
+        const { url, indexName } = localConfig.elasticsearch;
+        if (!isLoopbackHttpUrl(url)) {
+            setSaveMessage({ ok: false, text: 'The address must point to this computer, for example http://localhost:9200.' });
+            return;
+        }
+        if (!isValidIndexName(indexName)) {
+            setSaveMessage({ ok: false, text: 'Index names use lowercase letters, digits, "-" and "_", and cannot start with "-" or "_".' });
+            return;
+        }
         setConfig(localConfig);
-        // Show toast success
+        setSaveMessage({ ok: true, text: 'Settings saved.' });
+    };
+
+    const handleChooseFolder = async () => {
+        if (!window.electronAPI) return;
+        const folder = await window.electronAPI.selectFolder();
+        if (folder) setIndexFolder(folder);
     };
 
     const handleReindex = async () => {
         if (!window.electronAPI) {
-            setReindexOutput('Error: Reindexing requires the Electron desktop application.');
+            setReindexOutput('Indexing requires the desktop application.');
             return;
         }
+        if (!indexFolder || reindexing) return;
         setReindexing(true);
-        setReindexOutput('Starting reindex process...\n');
+        setReindexOutput(`Indexing ${indexFolder}...\n`);
         try {
-            // @ts-ignore
-            const output = await window.electronAPI.reindex('/Users/rodrigoallenderial/Documents'); // Hardcoded for now or use input
-            setReindexOutput(prev => prev + output + '\nDone!');
-        } catch (error: any) {
-            setReindexOutput(prev => prev + 'Error: ' + error.message);
+            const output = await window.electronAPI.reindex(indexFolder);
+            setReindexOutput(prev => prev + output + '\nDone.');
+        } catch (error) {
+            // Electron prefixes errors thrown in the main process; show only our message.
+            const message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error);
+            setReindexOutput(prev => prev + 'Error: ' + message);
         } finally {
             setReindexing(false);
         }
@@ -83,10 +102,15 @@ export const SettingsPage: React.FC = () => {
                             className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-end gap-4">
+                        {saveMessage && (
+                            <p role="status" className={cn("text-sm", saveMessage.ok ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
+                                {saveMessage.text}
+                            </p>
+                        )}
                         <button
                             onClick={handleSave}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            className="flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                         >
                             <Save className="w-4 h-4" />
                             Save Changes
@@ -105,23 +129,40 @@ export const SettingsPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-6">
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
+                        <div className="min-w-0">
+                            <h3 className="font-medium text-gray-900 dark:text-white">Documents folder</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 truncate" title={indexFolder ?? undefined}>
+                                {indexFolder ?? 'No folder selected yet'}
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleChooseFolder}
+                            disabled={reindexing || !window.electronAPI}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <FolderOpen className="w-4 h-4" />
+                            Choose Folder
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Reindex Documents</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Re-run the indexer on your documents folder</p>
+                            <h3 className="font-medium text-gray-900 dark:text-white">Index Documents</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Extract and index every supported document in the folder</p>
                         </div>
                         <button
                             onClick={handleReindex}
-                            disabled={reindexing}
+                            disabled={reindexing || !indexFolder}
                             className={cn(
                                 "flex items-center gap-2 px-4 py-2 rounded-lg transition-colors",
-                                reindexing
+                                reindexing || !indexFolder
                                     ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                                     : "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
                             )}
                         >
                             <RefreshCw className={cn("w-4 h-4", reindexing && "animate-spin")} />
-                            {reindexing ? 'Indexing...' : 'Reindex Now'}
+                            {reindexing ? 'Indexing...' : 'Index Now'}
                         </button>
                     </div>
 
@@ -131,7 +172,7 @@ export const SettingsPage: React.FC = () => {
                             animate={{ opacity: 1, height: 'auto' }}
                             className="bg-black text-green-400 p-4 rounded-lg font-mono text-xs overflow-x-auto max-h-60"
                         >
-                            <pre>{reindexOutput}</pre>
+                            <pre className="whitespace-pre-wrap">{reindexOutput}</pre>
                         </motion.div>
                     )}
                 </div>

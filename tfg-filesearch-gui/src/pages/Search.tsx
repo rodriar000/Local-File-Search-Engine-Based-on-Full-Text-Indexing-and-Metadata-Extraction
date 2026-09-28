@@ -5,6 +5,7 @@ import { useSearch } from '../hooks/useSearch';
 import { Filter, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { stripHighlight } from '../shared/highlight';
 
 export const SearchPage: React.FC = () => {
     const {
@@ -14,6 +15,14 @@ export const SearchPage: React.FC = () => {
     } = useSearch();
 
     const [showFilters, setShowFilters] = useState(false);
+    const [openError, setOpenError] = useState<string | null>(null);
+
+    const openResult = async (path: string) => {
+        if (!window.electronAPI) return;
+        setOpenError(null);
+        const failure = await window.electronAPI.openPath(path);
+        if (failure) setOpenError(failure);
+    };
 
     const toggleExtension = (ext: string) => {
         const current = filters.extensions;
@@ -28,12 +37,12 @@ export const SearchPage: React.FC = () => {
 
         let data = '';
         if (type === 'json') {
-            data = JSON.stringify(results, null, 2);
+            data = JSON.stringify(results, (_key, value) => typeof value === 'string' ? stripHighlight(value) : value, 2);
         } else {
             // Simple CSV implementation
             const headers = ['Score', 'Title', 'Path', 'Size', 'Date', 'Snippet'];
             const rows = results.hits.map(h => {
-                const snippet = (h.highlight?.content?.[0] || h.document.content || '').substring(0, 100).replace(/\n/g, ' ');
+                const snippet = stripHighlight(h.highlight?.content?.[0] || h.document.content || '').substring(0, 100).replace(/\n/g, ' ');
                 return [
                     h.score.toFixed(2),
                     `"${(h.document.title || h.document.filename || '').replace(/"/g, '""')}"`,
@@ -140,6 +149,12 @@ export const SearchPage: React.FC = () => {
                 </AnimatePresence>
             </div>
 
+            {openError && (
+                <div role="alert" className="p-4 mb-6 bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                    {openError}
+                </div>
+            )}
+
             {error && (
                 <div className="p-4 mb-6 bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
                     {error}
@@ -149,13 +164,7 @@ export const SearchPage: React.FC = () => {
             <ResultsList
                 results={results}
                 loading={loading}
-                onResultClick={(hit) => {
-                    // Handle click - could open modal or IPC open file
-                    console.log('Clicked', hit);
-                    if (window.electronAPI) {
-                        window.electronAPI.openPath(hit.document.path);
-                    }
-                }}
+                onResultClick={(hit) => openResult(hit.document.path)}
             />
         </div>
     );

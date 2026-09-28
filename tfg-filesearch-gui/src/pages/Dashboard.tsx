@@ -1,68 +1,60 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Database, HardDrive, Activity } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, Database, FolderOpen, Search } from 'lucide-react';
 import { AnalyticsGrid } from '../components/dashboard/AnalyticsGrid';
 import { IndexChart } from '../components/dashboard/IndexChart';
 import { StatCard } from '../components/dashboard/StatCard';
-import { elasticsearchService } from '../services/elasticsearch';
+import { ErrorCard } from '../components/ErrorCard';
+import { ElasticsearchService, IndexMissingError } from '../services/elasticsearch';
+import { SearchEngineUnavailableError } from '../services/esTransport';
 import { useAppStore } from '../store/useAppStore';
 import { IndexStats, SystemAnalytics } from '../types';
 import { formatBytes } from '../lib/utils';
 
+type LoadError = { type: 'offline' | 'no-index' | 'error'; message: string };
+
 export function Dashboard() {
   const [stats, setStats] = useState<IndexStats | null>(null);
   const [analytics, setAnalytics] = useState<SystemAnalytics | null>(null);
+  const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loading, setLoading] = useState(true);
-  const { config } = useAppStore();
+  const config = useAppStore((state) => state.config);
+  const navigate = useNavigate();
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const service = new ElasticsearchService(config.elasticsearch);
+    const [statsResult, analyticsResult] = await Promise.allSettled([
+      service.getStats(),
+      window.electronAPI ? window.electronAPI.getAnalytics() : Promise.resolve(null),
+    ]);
+
+    if (statsResult.status === 'fulfilled') {
+      setStats(statsResult.value);
+    } else {
+      const error = statsResult.reason;
+      setStats(null);
+      setLoadError({
+        type: error instanceof IndexMissingError ? 'no-index'
+          : error instanceof SearchEngineUnavailableError ? 'offline'
+          : 'error',
+        message: error instanceof Error ? error.message : 'Could not load index statistics.',
+      });
+    }
+    setAnalytics(analyticsResult.status === 'fulfilled' ? analyticsResult.value : null);
+    setLoading(false);
+  }, [config.elasticsearch.url, config.elasticsearch.indexName]);
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        // Initial fetch
-        const [esStats, sysAnalytics] = await Promise.all([
-          elasticsearchService.getStats(),
-          window.ipcRenderer ? window.ipcRenderer.invoke('get-analytics') : Promise.resolve({
-            indexing: {
-              totalDocuments: 15420,
-              sizeBytes: 450 * 1024 * 1024,
-              lastRun: new Date().toISOString(),
-              durationMs: 45000,
-              docsPerSecond: 342
-            },
-            search: {
-              totalSearches: 1250,
-              totalSearchTimeMs: 45000,
-              avgLatencyMs: 36,
-              history: []
-            }
-          })
-        ]);
-        setStats(esStats);
-        setAnalytics(sysAnalytics);
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
+    loadData();
+  }, [loadData]);
 
-    if (config.elasticsearch?.url) {
-      loadData();
-    } else {
-      // Fallback for dev/demo if no URL configured or immediate load
-      loadData();
-    }
-  }, [config]);
-
-  // Mock chart data if real data isn't available yet or strictly for visualization
-  // In a real scenario, this should come from 'analytics'
-  const chartData = [
-    { name: 'PDF', value: 45 },
-    { name: 'DOCX', value: 25 },
-    { name: 'TXT', value: 15 },
-    { name: 'MD', value: 10 },
-    { name: 'OTHER', value: 5 },
-  ];
+  const chartData = useMemo(
+    () => Object.entries(stats?.fileTypes ?? {}).map(([name, value]) => ({ name: name.toUpperCase(), value })),
+    [stats],
+  );
 
   if (loading) {
     return (
@@ -84,35 +76,33 @@ export function Dashboard() {
       {/* Main Analytics Grid */}
       {analytics && <AnalyticsGrid data={analytics} />}
 
+      {loadError && (
+        <ErrorCard
+          type={loadError.type}
+          message={loadError.message}
+          onRetry={loadData}
+          onAction={loadError.type === 'no-index' ? () => navigate('/settings') : undefined}
+          actionLabel="Index a Folder"
+        />
+      )}
+
       {/* Quick Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          title="Total Documents"
-          value={stats?.documentCount.toLocaleString() || (analytics?.indexing?.totalDocuments.toLocaleString() || '0')}
-          icon={FileText}
-          color="blue"
-          trend="+12%"
-          trendUp={true}
-        />
-        <StatCard
-          title="Index Size"
-          value={formatBytes(stats?.sizeInBytes || analytics?.indexing?.sizeBytes || 0)}
-          icon={Database}
-          color="purple"
-        />
-        <StatCard
-          title="Storage Used"
-          value={formatBytes(stats?.sizeInBytes || analytics?.indexing?.sizeBytes || 0)}
-          icon={HardDrive}
-          color="orange"
-        />
-        <StatCard
-          title="Cluster Health"
-          value={stats?.health || "Green"}
-          icon={Activity}
-          color="green"
-        />
-      </div>
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <StatCard
+            title="Indexed Documents"
+            value={stats.documentCount.toLocaleString()}
+            icon={FileText}
+            color="blue"
+          />
+          <StatCard
+            title="Index Size"
+            value={formatBytes(stats.sizeInBytes)}
+            icon={Database}
+            color="purple"
+          />
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -122,7 +112,11 @@ export function Dashboard() {
           className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
         >
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">File Type Distribution</h3>
-          <IndexChart data={chartData} />
+          {chartData.length > 0 ? (
+            <IndexChart data={chartData} />
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No documents indexed yet.</p>
+          )}
         </motion.div>
 
         <motion.div
@@ -133,13 +127,19 @@ export function Dashboard() {
         >
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
           <div className="space-y-3">
-            <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between group">
-              <span className="font-medium">Reindex All Documents</span>
-              <Activity className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <button
+              onClick={() => navigate('/search')}
+              className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between"
+            >
+              <span className="font-medium">Search Documents</span>
+              <Search className="w-4 h-4" />
             </button>
-            <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between group">
-              <span className="font-medium">Clear Cache</span>
-              <Activity className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <button
+              onClick={() => navigate('/settings')}
+              className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between"
+            >
+              <span className="font-medium">Index a Folder</span>
+              <FolderOpen className="w-4 h-4" />
             </button>
           </div>
         </motion.div>

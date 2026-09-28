@@ -3,6 +3,7 @@ import { FileText, Calendar, HardDrive, User, FileCode, FileJson, FileType, File
 import { motion } from 'framer-motion';
 import { formatBytes } from '../../lib/utils';
 import { SearchResult } from '../../types';
+import { HighlightedText } from './HighlightedText';
 
 interface ResultCardProps {
     hit: SearchResult['hits'][0];
@@ -23,9 +24,9 @@ const getFileIcon = (extension: string) => {
 export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ hit, onClick }, ref) => {
     const { document: doc, highlight } = hit;
 
-    // Use highlights if available, otherwise fallback to content snippet
-    const contentPreview = highlight?.content?.[0] || (doc.content?.substring(0, 200) + '...');
-    const titlePreview = highlight?.title?.[0] || doc.title || doc.filename;
+    // Highlights carry marker characters, never HTML; see shared/highlight.ts
+    const contentPreview = highlight?.content?.[0] ?? (doc.content ? doc.content.substring(0, 200) + '...' : '');
+    const titlePreview = highlight?.title?.[0] ?? (doc.title || doc.filename);
 
     return (
         <motion.div
@@ -44,10 +45,9 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
 
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                        <h3
-                            className="text-lg font-semibold text-blue-600 dark:text-blue-400 truncate pr-4"
-                            dangerouslySetInnerHTML={{ __html: titlePreview }}
-                        />
+                        <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 truncate pr-4">
+                            <HighlightedText fragment={titlePreview} />
+                        </h3>
                         <span className="text-xs font-mono text-gray-400 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded">
                             Score: {hit.score.toFixed(2)}
                         </span>
@@ -73,10 +73,9 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
                         )}
                     </div>
 
-                    <p
-                        className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-2 font-serif"
-                        dangerouslySetInnerHTML={{ __html: contentPreview }}
-                    />
+                    <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-2 font-serif">
+                        <HighlightedText fragment={contentPreview} />
+                    </p>
                 </div>
             </div>
         </motion.div>
