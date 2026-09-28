@@ -1,18 +1,21 @@
 <configuration>
 
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Same data folder as AppPaths: -Dfilesearch.home, then FILESEARCH_HOME, then ~/.filesearch -->
+    <property name="DATA_HOME" value="${filesearch.home:-${FILESEARCH_HOME:-${user.home}/.filesearch}}"/>
+
+    <!-- stderr, so stdout carries only command output (JSON results, the API ready line) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/app.log</file>
+        <file>${DATA_HOME}/logs/app.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <!-- daily rollover -->
-            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <!-- keep 30 days' worth of history -->
-            <maxHistory>30</maxHistory>
+            <fileNamePattern>${DATA_HOME}/logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>14</maxHistory>
         </rollingPolicy>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
@@ -20,13 +23,14 @@
     </appender>
 
     <root level="INFO">
-        <appender-ref ref="STDOUT" />
+        <appender-ref ref="CONSOLE" />
         <appender-ref ref="FILE" />
     </root>
 
-    <!-- Silence bulky ES logs -->
-    <logger name="org.elasticsearch.client.RestClient" level="WARN"/>
-    <logger name="org.apache.http" level="WARN"/>
-    <logger name="co.elastic.clients" level="WARN"/>
+    <!-- Per-file extraction messages name client files: keep them out of the default logs. -->
+    <logger name="com.allende.filesearch.tika" level="WARN"/>
+    <logger name="org.apache.pdfbox" level="ERROR"/>
+    <logger name="org.apache.fontbox" level="ERROR"/>
+    <logger name="org.apache.poi" level="ERROR"/>
 
 </configuration>

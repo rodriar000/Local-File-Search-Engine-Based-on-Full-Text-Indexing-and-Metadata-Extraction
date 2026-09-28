@@ -5,6 +5,7 @@ import { SearchPage } from './pages/Search';
 import { SettingsPage } from './pages/Settings';
 import { useEffect } from 'react';
 import { useAppStore } from './store/useAppStore';
+import { startIndexing } from './services/searchApi';
 
 function App() {
     const { darkMode } = useAppStore();
@@ -16,6 +17,17 @@ function App() {
             document.documentElement.classList.remove('dark');
         }
     }, [darkMode]);
+
+    // Catch up with documents added, changed or deleted while the app was closed.
+    // Only changed files are read, so this is quick when little has changed.
+    useEffect(() => {
+        const folder = useAppStore.getState().indexFolder;
+        if (window.electronAPI && folder) {
+            startIndexing(folder).catch(() => {
+                // Settings shows the engine's state; nothing to do here.
+            });
+        }
+    }, []);
 
     return (
         <HashRouter>

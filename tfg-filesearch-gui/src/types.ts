@@ -17,7 +17,7 @@ export interface SearchMetrics {
     };
     execution: {
         totalTimeMs: number;
-        elasticTookMs: number;
+        engineTookMs: number;
         timestamp: string;
     };
 }
@@ -41,11 +41,32 @@ export interface SearchFilters {
     dateTo?: string;
 }
 
-export interface AppConfig {
-    elasticsearch: {
-        url: string;
-        indexName: string;
-    };
+export interface SyncReport {
+    root: string;
+    scanned: number;
+    added: number;
+    updated: number;
+    unchanged: number;
+    deleted: number;
+    skippedTooLarge: number;
+    /** Indexed by name only because no text could be extracted (e.g. scanned PDFs). */
+    withoutText: number;
+    failed: number;
+    failures: { path: string; reason: string }[];
+    durationMs: number;
+    cancelled: boolean;
+}
+
+/** Progress of the current indexing run, or the outcome of the last one. */
+export interface IndexStatus {
+    running: boolean;
+    folder?: string;
+    processed: number;
+    total: number;
+    startedAt?: string;
+    finishedAt?: string;
+    lastReport?: SyncReport;
+    error?: string;
 }
 
 export interface SearchHistoryPoint {

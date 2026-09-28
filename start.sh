@@ -117,23 +117,6 @@ is_frontend_running() {
 # SERVICE CHECKS
 # ============================================================================
 
-check_elasticsearch() {
-    print_msg "info" "Checking Elasticsearch..."
-    
-    if curl -s http://localhost:9200 > /dev/null 2>&1; then
-        print_msg "success" "Elasticsearch is running"
-        return 0
-    else
-        print_msg "warning" "Elasticsearch is not running"
-        echo ""
-        echo "To start Elasticsearch:"
-        echo "   brew services start elasticsearch-full"
-        echo ""
-        read -p "Press Enter to continue..."
-        return 1
-    fi
-}
-
 check_backend() {
     print_msg "info" "Checking backend..."
     
@@ -244,7 +227,6 @@ action_launch_frontend() {
 action_index_documents() {
     print_header "INDEX DOCUMENTS"
     
-    check_elasticsearch || return 0
     check_backend || return 0
     
     local last_path=$(get_state "last_path")
@@ -293,7 +275,6 @@ action_index_documents() {
 action_search() {
     print_header "SEARCH FROM CLI"
     
-    check_elasticsearch || return 0
     check_backend || return 0
     
     echo ""
@@ -318,7 +299,6 @@ action_search() {
 action_stats() {
     print_header "INDEX STATISTICS"
     
-    check_elasticsearch || return 0
     check_backend || return 0
     
     set_state "last_action" "stats"
@@ -386,7 +366,6 @@ main() {
     
     # Initial system check
     print_header "SYSTEM CHECK"
-    check_elasticsearch
     check_backend
     check_frontend
     

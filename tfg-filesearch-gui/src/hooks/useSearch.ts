@@ -1,23 +1,16 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { ElasticsearchService } from '../services/elasticsearch';
-import { useAppStore } from '../store/useAppStore';
+import { useState, useEffect, useRef } from 'react';
+import { search } from '../services/searchApi';
 import { SearchFilters, SearchResult } from '../types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function useSearch() {
-    const config = useAppStore((state) => state.config);
     const [query, setQuery] = useState('');
     const [filters, setFilters] = useState<SearchFilters>({ extensions: [] });
     const [results, setResults] = useState<SearchResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const latestRequest = useRef(0);
-
-    const searchService = useMemo(
-        () => new ElasticsearchService(config.elasticsearch),
-        [config.elasticsearch.url, config.elasticsearch.indexName],
-    );
 
     useEffect(() => {
         if (!query.trim() && filters.extensions.length === 0) {
@@ -34,7 +27,7 @@ export function useSearch() {
             setLoading(true);
             setError(null);
             try {
-                const res = await searchService.search(query, filters);
+                const res = await search(query, filters);
                 if (requestId === latestRequest.current) setResults(res);
             } catch (err) {
                 if (requestId !== latestRequest.current) return;
@@ -46,7 +39,7 @@ export function useSearch() {
         }, SEARCH_DEBOUNCE_MS);
 
         return () => clearTimeout(timer);
-    }, [query, filters, searchService]);
+    }, [query, filters]);
 
     return {
         query,

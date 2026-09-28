@@ -1,52 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import {
-    MAX_ES_BODY_BYTES,
-    isAllowedEsRequest,
+    MAX_API_BODY_BYTES,
+    isAllowedApiRequest,
     isOpenableDocumentPath,
-    isValidEsTarget,
     isValidIndexFolder,
 } from './security';
 
-describe('isAllowedEsRequest', () => {
-    const index = 'filesearch';
-
-    it('allows the read-only operations the UI uses', () => {
-        expect(isAllowedEsRequest({ method: 'GET', path: '/' }, index)).toBe(true);
-        expect(isAllowedEsRequest({ method: 'HEAD', path: '/filesearch' }, index)).toBe(true);
-        expect(isAllowedEsRequest({ method: 'GET', path: '/filesearch/_stats' }, index)).toBe(true);
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_search', body: { query: {} } }, index)).toBe(true);
+describe('isAllowedApiRequest', () => {
+    it('allows the operations the UI uses', () => {
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/health' })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/stats' })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/search', body: { query: 'fianza' } })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: { folder: '/home/ana/Expedientes' } })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/index/status' })).toBe(true);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/index/cancel' })).toBe(true);
     });
 
-    it('refuses destructive or unrelated requests', () => {
-        expect(isAllowedEsRequest({ method: 'DELETE', path: '/filesearch' }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_delete_by_query', body: {} }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'POST', path: '/other/_search', body: {} }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'GET', path: '/_cat/indices' }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_search?scroll=1m', body: {} }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'GET', path: 'constructor' }, index)).toBe(false);
+    it('refuses unknown routes and wrong methods', () => {
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/search' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'DELETE', path: '/api/index' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/stats?x=1' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/../api/stats' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: 'constructor' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: 'toString' })).toBe(false);
     });
 
     it('validates the request body', () => {
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_search' }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_search', body: [] }, index)).toBe(false);
-        expect(isAllowedEsRequest({ method: 'GET', path: '/', body: {} }, index)).toBe(false);
-        const huge = { query: 'x'.repeat(MAX_ES_BODY_BYTES) };
-        expect(isAllowedEsRequest({ method: 'POST', path: '/filesearch/_search', body: huge }, index)).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/search' })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/search', body: [] })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/stats', body: {} })).toBe(false);
+        const huge = { query: 'x'.repeat(MAX_API_BODY_BYTES) };
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/search', body: huge })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: { folder: 'relative' } })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'POST', path: '/api/index', body: {} })).toBe(false);
     });
 
     it('rejects malformed input', () => {
-        for (const request of [null, undefined, 'GET /', { method: 'GET' }, { path: '/' }]) {
-            expect(isAllowedEsRequest(request, index)).toBe(false);
+        for (const request of [null, undefined, 'GET /api/stats', { method: 'GET' }, { path: '/api/stats' }]) {
+            expect(isAllowedApiRequest(request)).toBe(false);
         }
-    });
-});
-
-describe('isValidEsTarget', () => {
-    it('requires a loopback URL and a valid index name', () => {
-        expect(isValidEsTarget({ url: 'http://localhost:9200', indexName: 'filesearch' })).toBe(true);
-        expect(isValidEsTarget({ url: 'http://10.0.0.5:9200', indexName: 'filesearch' })).toBe(false);
-        expect(isValidEsTarget({ url: 'http://localhost:9200', indexName: '../x' })).toBe(false);
-        expect(isValidEsTarget(null)).toBe(false);
     });
 });
 

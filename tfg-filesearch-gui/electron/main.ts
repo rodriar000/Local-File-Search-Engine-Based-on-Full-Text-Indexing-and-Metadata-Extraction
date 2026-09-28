@@ -1,17 +1,10 @@
 import { app, BrowserWindow, shell, ipcMain, clipboard, dialog, IpcMainInvokeEvent } from 'electron'
-import { spawn, ChildProcess } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import {
-    EsRequest,
-    EsTarget,
-    isAllowedEsRequest,
-    isOpenableDocumentPath,
-    isValidEsTarget,
-    isValidIndexFolder,
-} from './security'
+import { isAllowedApiRequest, isOpenableDocumentPath } from './security'
 import { normalizeIndexingStats, normalizeSearchStats } from './analytics'
+import { Backend } from './backend'
 
 // --- GPU Management Strategy ---
 // Fix for "Black Screen" / EGL Driver errors on macOS Intel
@@ -29,15 +22,11 @@ if (process.env.ELECTRON_FORCE_SWIFTSHADER === '1') {
 process.env.DIST = path.join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(__dirname, '../public')
 
-const ES_TIMEOUT_MS = 10_000
 const MAX_CLIPBOARD_CHARS = 100_000
 const MAX_EXPORT_BYTES = 50 * 1024 * 1024
-const MAX_REINDEX_OUTPUT_CHARS = 64 * 1024
 
 let win: BrowserWindow | null
-let reindexProcess: ChildProcess | null = null
-/** Set synchronously so two quick clicks cannot both start an indexer. */
-let reindexInFlight = false
+let backend: Backend | null = null
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
@@ -68,19 +57,38 @@ async function isExistingFile(filePath: string): Promise<boolean> {
     }
 }
 
-async function isExistingDirectory(dirPath: string): Promise<boolean> {
-    try {
-        return (await fs.stat(dirPath)).isDirectory()
-    } catch {
-        return false
-    }
-}
-
-function resolveIndexerJar(): string {
+function resolveBackendJar(): string {
     if (process.env.FILESEARCH_JAR) return process.env.FILESEARCH_JAR
     return app.isPackaged
         ? path.join(process.resourcesPath, 'filesearch.jar')
         : path.join(__dirname, '../../tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar')
+}
+
+/** Where the backend keeps its index, statistics and logs (same rule as the Java AppPaths). */
+function dataHome(): string {
+    return process.env.FILESEARCH_HOME || path.join(os.homedir(), '.filesearch')
+}
+
+/**
+ * Folders the user picked in the folder dialog. Only these can be indexed, so a
+ * compromised renderer cannot point the index somewhere else (which would also
+ * drop the documents indexed so far).
+ */
+const approvedFoldersFile = () => path.join(app.getPath('userData'), 'approved-folders.json')
+
+async function readApprovedFolders(): Promise<string[]> {
+    try {
+        const folders = JSON.parse(await fs.readFile(approvedFoldersFile(), 'utf-8'))
+        return Array.isArray(folders) ? folders.filter((f): f is string => typeof f === 'string') : []
+    } catch {
+        return []
+    }
+}
+
+async function approveFolder(folder: string): Promise<void> {
+    const folders = new Set(await readApprovedFolders())
+    folders.add(folder)
+    await fs.writeFile(approvedFoldersFile(), JSON.stringify([...folders]), 'utf-8')
 }
 
 function createWindow() {
@@ -141,24 +149,6 @@ function createWindow() {
     }
 }
 
-async function forwardEsRequest(target: EsTarget, request: EsRequest) {
-    const base = target.url.replace(/\/$/, '')
-    try {
-        const response = await fetch(base + request.path, {
-            method: request.method,
-            headers: request.body ? { 'Content-Type': 'application/json' } : undefined,
-            body: request.body ? JSON.stringify(request.body) : undefined,
-            signal: AbortSignal.timeout(ES_TIMEOUT_MS),
-        })
-        const isJson = response.headers.get('content-type')?.includes('application/json')
-        const data = request.method !== 'HEAD' && isJson ? await response.json() : null
-        return { status: response.status, data }
-    } catch (error) {
-        const reason = error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'unreachable'
-        return { status: 0, data: null, error: reason }
-    }
-}
-
 function registerIpcHandlers() {
     handle('open-path', async (_event, filePath: unknown) => {
         if (!isOpenableDocumentPath(filePath) || !(await isExistingFile(filePath))) {
@@ -198,61 +188,13 @@ function registerIpcHandlers() {
         const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
             properties: ['openDirectory'],
         })
-        return canceled || filePaths.length === 0 ? null : filePaths[0]
+        if (canceled || filePaths.length === 0) return null
+        await approveFolder(filePaths[0])
+        return filePaths[0]
     })
-
-    handle('reindex', async (_event, folder: unknown) => {
-        if (reindexInFlight) {
-            throw new Error('Indexing is already running.')
-        }
-        reindexInFlight = true
-        try {
-            return await runIndexer(folder)
-        } finally {
-            reindexInFlight = false
-        }
-    })
-
-    async function runIndexer(folder: unknown): Promise<string> {
-        if (!isValidIndexFolder(folder) || !(await isExistingDirectory(folder))) {
-            throw new Error('Choose an existing folder to index.')
-        }
-        const jarPath = resolveIndexerJar()
-        if (!(await isExistingFile(jarPath))) {
-            throw new Error(`Indexer not found at ${jarPath}. Build the backend with "mvn package" first.`)
-        }
-
-        return new Promise<string>((resolve, reject) => {
-            const child = spawn('java', ['-jar', jarPath, 'update-index', '--', folder], { windowsHide: true })
-            reindexProcess = child
-
-            let output = ''
-            const append = (chunk: Buffer) => {
-                output = (output + chunk.toString()).slice(-MAX_REINDEX_OUTPUT_CHARS)
-            }
-            child.stdout?.on('data', append)
-            child.stderr?.on('data', append)
-
-            child.on('error', (error: NodeJS.ErrnoException) => {
-                reindexProcess = null
-                reject(new Error(error.code === 'ENOENT'
-                    ? 'Java was not found. Install Java 17 or later to run the indexer.'
-                    : `Could not start the indexer: ${error.message}`))
-            })
-
-            child.on('close', (code) => {
-                reindexProcess = null
-                if (code === 0) {
-                    resolve(output)
-                } else {
-                    reject(new Error(`Indexing failed (exit code ${code}).\n${output}`))
-                }
-            })
-        })
-    }
 
     handle('get-analytics', async () => {
-        const statsDir = path.join(os.homedir(), '.filesearch')
+        const statsDir = dataHome()
         const readJson = async (file: string) => {
             try {
                 return JSON.parse(await fs.readFile(path.join(statsDir, file), 'utf-8'))
@@ -266,14 +208,18 @@ function registerIpcHandlers() {
         }
     })
 
-    handle('es:request', async (_event, target: unknown, request: unknown) => {
-        if (!isValidEsTarget(target)) {
-            throw new Error('The search engine address must be on this computer (localhost).')
+    handle('api:request', async (_event, request: unknown) => {
+        if (!isAllowedApiRequest(request)) {
+            throw new Error('Request not allowed')
         }
-        if (!isAllowedEsRequest(request, target.indexName)) {
-            throw new Error('Search engine request not allowed')
+        if (request.path === '/api/index') {
+            const { folder } = request.body as { folder: string }
+            if (!(await readApprovedFolders()).includes(folder)) {
+                throw new Error('Choose the folder again in Settings before indexing it.')
+            }
         }
-        return forwardEsRequest(target, request)
+        backend ??= new Backend({ jarPath: resolveBackendJar(), javaPath: process.env.FILESEARCH_JAVA })
+        return backend.request(request.method, request.path, request.body)
     })
 }
 
@@ -295,7 +241,7 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
-    reindexProcess?.kill()
+    backend?.stop()
 })
 
 app.whenReady().then(() => {

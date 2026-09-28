@@ -1,11 +1,12 @@
 /**
  * Safe search-hit highlighting.
  *
- * Elasticsearch returns highlight fragments as raw document text wrapped in
- * pre/post tags, without escaping any HTML the document itself contains.
- * Rendering those fragments as HTML would let a crafted document run script
- * in the app, so we ask Elasticsearch for Unicode private-use markers instead
- * of HTML tags and render the fragments as plain React text.
+ * The search engine returns snippets as raw document text with the matched
+ * words wrapped in markers, without escaping any HTML the document contains.
+ * Rendering them as HTML would let a crafted document run script in the app,
+ * so the markers are Unicode private-use characters (the same ones as
+ * DocumentIndex.HIGHLIGHT_PRE/POST in the backend) and snippets are rendered
+ * as plain React text.
  */
 
 export const HIGHLIGHT_PRE = '';

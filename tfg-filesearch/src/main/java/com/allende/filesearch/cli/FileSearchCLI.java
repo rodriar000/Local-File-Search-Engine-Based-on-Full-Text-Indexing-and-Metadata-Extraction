@@ -6,8 +6,7 @@ import picocli.CommandLine.Command;
 /**
  * Main CLI entry point for File Search Engine.
  */
-@Command(name = "filesearch", mixinStandardHelpOptions = true, version = "1.0", description = "A powerful file search CLI using Elasticsearch and Apache Tika.", subcommands = {
-        CreateIndexCommand.class,
+@Command(name = "filesearch", mixinStandardHelpOptions = true, version = "1.0", description = "Local document search: Apache Tika extraction and an embedded Apache Lucene index.", subcommands = {
         UpdateIndexCommand.class,
         SearchCommand.class,
         StatsCommand.class,
@@ -15,6 +14,7 @@ import picocli.CommandLine.Command;
         WatchCommand.class,
         ExportMetricsCommand.class,
         DoctorCommand.class,
+        ServeCommand.class,
         BenchmarkCommand.class
 })
 public class FileSearchCLI implements Runnable {

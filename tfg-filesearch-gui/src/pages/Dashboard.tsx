@@ -6,9 +6,7 @@ import { AnalyticsGrid } from '../components/dashboard/AnalyticsGrid';
 import { IndexChart } from '../components/dashboard/IndexChart';
 import { StatCard } from '../components/dashboard/StatCard';
 import { ErrorCard } from '../components/ErrorCard';
-import { ElasticsearchService, IndexMissingError } from '../services/elasticsearch';
-import { SearchEngineUnavailableError } from '../services/esTransport';
-import { useAppStore } from '../store/useAppStore';
+import { getStats, IndexMissingError, SearchEngineUnavailableError } from '../services/searchApi';
 import { IndexStats, SystemAnalytics } from '../types';
 import { formatBytes } from '../lib/utils';
 
@@ -19,15 +17,13 @@ export function Dashboard() {
   const [analytics, setAnalytics] = useState<SystemAnalytics | null>(null);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loading, setLoading] = useState(true);
-  const config = useAppStore((state) => state.config);
   const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const service = new ElasticsearchService(config.elasticsearch);
     const [statsResult, analyticsResult] = await Promise.allSettled([
-      service.getStats(),
+      getStats(),
       window.electronAPI ? window.electronAPI.getAnalytics() : Promise.resolve(null),
     ]);
 
@@ -45,7 +41,7 @@ export function Dashboard() {
     }
     setAnalytics(analyticsResult.status === 'fulfilled' ? analyticsResult.value : null);
     setLoading(false);
-  }, [config.elasticsearch.url, config.elasticsearch.indexName]);
+  }, []);
 
   useEffect(() => {
     loadData();

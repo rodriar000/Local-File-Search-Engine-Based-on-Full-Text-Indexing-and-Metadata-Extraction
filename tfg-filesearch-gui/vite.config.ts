@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig, loadEnv, Plugin } from 'vite'
+import { defineConfig, Plugin } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
@@ -34,8 +34,7 @@ function contentSecurityPolicy(): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, process.cwd(), 'VITE_')
+export default defineConfig(() => {
     return {
         plugins: [
             react(),
@@ -53,17 +52,6 @@ export default defineConfig(({ mode }) => {
                 renderer: {},
             }),
         ],
-        server: {
-            // Browser preview during development only; the desktop app uses IPC.
-            proxy: {
-                '/api': {
-                    target: env.VITE_DEV_ELASTIC_URL || 'http://localhost:9200',
-                    changeOrigin: true,
-                    rewrite: (p) => p.replace(/^\/api/, ''),
-                    secure: false,
-                }
-            }
-        },
         test: {
             environment: 'node',
             include: ['src/**/*.test.ts', 'electron/**/*.test.ts'],

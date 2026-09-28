@@ -1,26 +1,31 @@
 package com.allende.filesearch.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.List;
 
 /**
  * Configuration model loaded from YAML.
+ * Unknown keys (for example the old "elasticsearch" section) are ignored so
+ * existing configuration files keep loading.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Config {
-    private ElasticsearchConfig elasticsearch;
-    private IndexingConfig indexing;
-    private SearchConfig search;
-    private WatchConfig watch;
-    private LoggingConfig logging;
+    private IndexConfig index = new IndexConfig();
+    private IndexingConfig indexing = new IndexingConfig();
+    private SearchConfig search = new SearchConfig();
+    private WatchConfig watch = new WatchConfig();
+    private LoggingConfig logging = new LoggingConfig();
 
     public Config() {
     }
 
-    public ElasticsearchConfig getElasticsearch() {
-        return elasticsearch;
+    public IndexConfig getIndex() {
+        return index;
     }
 
-    public void setElasticsearch(ElasticsearchConfig elasticsearch) {
-        this.elasticsearch = elasticsearch;
+    public void setIndex(IndexConfig index) {
+        this.index = index;
     }
 
     public IndexingConfig getIndexing() {
@@ -55,63 +60,31 @@ public class Config {
         this.logging = logging;
     }
 
-    public static class ElasticsearchConfig {
-        private String host = "localhost";
-        private int port = 9200;
-        private String scheme = "http";
-        private String indexName = "filesearch";
-        private int bulkSize = 100;
-        private String refreshInterval = "5s";
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class IndexConfig {
+        /** Index location; null means the default under the application data folder. */
+        private String directory;
+        /** Documents indexed between intermediate commits during a sync. */
+        private int commitEvery = 500;
 
-        public String getHost() {
-            return host;
+        public String getDirectory() {
+            return directory;
         }
 
-        public void setHost(String host) {
-            this.host = host;
+        public void setDirectory(String directory) {
+            this.directory = directory;
         }
 
-        public int getPort() {
-            return port;
+        public int getCommitEvery() {
+            return commitEvery;
         }
 
-        public void setPort(int port) {
-            this.port = port;
-        }
-
-        public String getScheme() {
-            return scheme;
-        }
-
-        public void setScheme(String scheme) {
-            this.scheme = scheme;
-        }
-
-        public String getIndexName() {
-            return indexName;
-        }
-
-        public void setIndexName(String indexName) {
-            this.indexName = indexName;
-        }
-
-        public int getBulkSize() {
-            return bulkSize;
-        }
-
-        public void setBulkSize(int bulkSize) {
-            this.bulkSize = bulkSize;
-        }
-
-        public String getRefreshInterval() {
-            return refreshInterval;
-        }
-
-        public void setRefreshInterval(String refreshInterval) {
-            this.refreshInterval = refreshInterval;
+        public void setCommitEvery(int commitEvery) {
+            this.commitEvery = commitEvery;
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class IndexingConfig {
         private List<String> extensions;
         private int maxFileSizeMb = 100;
@@ -151,6 +124,7 @@ public class Config {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class SearchConfig {
         private int defaultSize = 10;
         private int maxSize = 100;
@@ -181,6 +155,7 @@ public class Config {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class WatchConfig {
         private boolean enabled = true;
         private int debounceMs = 1000;
@@ -211,6 +186,7 @@ public class Config {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class LoggingConfig {
         private String level = "INFO";
         private String file = "logs/filesearch.log";

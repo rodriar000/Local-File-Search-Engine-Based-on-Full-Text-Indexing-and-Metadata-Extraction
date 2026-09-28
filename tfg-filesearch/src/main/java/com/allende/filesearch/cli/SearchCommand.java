@@ -1,24 +1,26 @@
 package com.allende.filesearch.cli;
 
-import com.allende.filesearch.elastic.ElasticsearchService;
-import com.allende.filesearch.model.Config;
+import com.allende.filesearch.index.DocumentIndex;
+import com.allende.filesearch.index.SearchRequest;
 import com.allende.filesearch.model.SearchResult;
-import com.allende.filesearch.utils.ConfigLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
  * Command to search indexed documents.
  */
-@Command(name = "search", description = "Search for documents in the index", mixinStandardHelpOptions = true)
+@Command(name = "search", description = "Search the index. Syntax: words (all required), \"exact phrase\", "
+        + "\"phrase\"~5 (words near each other), -exclude, a | b (either), prefix*", mixinStandardHelpOptions = true)
 public class SearchCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", description = "Search query (use query_string syntax)")
+    @Parameters(index = "0", description = "Search query")
     private String query;
 
     @Option(names = { "-n", "--size" }, description = "Number of results to return", defaultValue = "10")
@@ -27,60 +29,37 @@ public class SearchCommand implements Callable<Integer> {
     @Option(names = { "-o", "--output" }, description = "Output format: text or json", defaultValue = "text")
     private String outputFormat;
 
-    @Option(names = { "--index-name" }, description = "Override index name")
-    private String indexName;
-
-    @Option(names = { "--ext" }, description = "Filter by file extension (e.g., pdf, txt)")
-    private String extension;
+    @Option(names = { "--ext" }, split = ",", description = "Only these file types, e.g. --ext pdf,docx")
+    private List<String> extensions;
 
     @Override
-    public Integer call() throws Exception {
-        Config config = ConfigLoader.load();
-
-        // Override index name if provided
-        if (indexName != null && !indexName.isEmpty()) {
-            config.getElasticsearch().setIndexName(indexName);
-        }
-
-        // Append extension filter to query if provided
-        String finalQuery = query;
-        if (extension != null && !extension.isEmpty()) {
-            finalQuery = String.format("(%s) AND extension:%s", query, extension);
-        }
-
-        try (ElasticsearchService esService = new ElasticsearchService(config)) {
-            long startTime = System.currentTimeMillis();
-            SearchResult result = esService.getSearchExecutor().search(finalQuery, size);
-            long endTime = System.currentTimeMillis();
+    public Integer call() {
+        DependencyContainer container = DependencyContainer.getInstance();
+        try (DocumentIndex index = container.openIndexReadOnly()) {
+            SearchResult result = index.search(new SearchRequest(query, extensions, null, null, null, null, 0, size));
 
             if ("json".equalsIgnoreCase(outputFormat)) {
                 printJsonOutput(result);
             } else {
-                printTextOutput(result, endTime - startTime);
+                printTextOutput(result);
             }
 
-            // Record Analytics
             try {
-                DependencyContainer.getInstance().getAnalyticsManager()
-                        .recordSearch(finalQuery, result.getTotalTimeMs(), result.getTotalHits());
-            } catch (Exception e) {
-                // Fail silently for analytics not to impact user experience
-                // System.err.println("Analytics error: " + e.getMessage());
+                container.getAnalyticsManager().recordSearch(query, result.getTotalTimeMs(), result.getTotalHits());
+            } catch (RuntimeException e) {
+                // Analytics are informative only.
             }
-
             return 0;
         } catch (Exception e) {
             System.err.println("Search failed: " + e.getMessage());
-            e.printStackTrace();
             return 1;
         }
     }
 
-    private void printTextOutput(SearchResult result, long queryTimeMs) {
+    private void printTextOutput(SearchResult result) {
         System.out.println("SEARCH RESULTS");
         System.out.println("------------------------------------------------------------");
-        System.out.println("Total Execution Time: " + result.getTotalTimeMs() + " ms");
-        System.out.println("ES Query Time:        " + result.getTookMs() + " ms");
+        System.out.println("Search time:          " + result.getTotalTimeMs() + " ms");
         System.out.println(
                 "Throughput:           " + String.format("%.2f", result.getResultsPerSecond()) + " results/sec");
         System.out.println("Total hits:           " + result.getTotalHits());
@@ -115,7 +94,8 @@ public class SearchCommand implements Callable<Integer> {
                     preview = preview.substring(0, 200) + "...";
                 }
                 System.out.println("Preview:");
-                System.out.println("    " + preview.replace("\n", " "));
+                System.out.println("    " + preview.replace("\n", " ")
+                        .replace(DocumentIndex.HIGHLIGHT_PRE, "[").replace(DocumentIndex.HIGHLIGHT_POST, "]"));
             }
 
             System.out.println("------------------------------------------------------------");
@@ -128,8 +108,9 @@ public class SearchCommand implements Callable<Integer> {
     }
 
     private void printJsonOutput(SearchResult result) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         String json = mapper.writeValueAsString(result);
         System.out.println(json);
     }

@@ -12,6 +12,9 @@ if (-not (Test-Path $DATASET_PATH)) {
     exit 1
 }
 
+# Keep the benchmark index apart from the user's own index.
+$env:FILESEARCH_HOME = Join-Path $PSScriptRoot "benchmark-home"
+
 # Initialize results file
 "Run,Operation,Metric,Value,Unit" | Out-File $RESULTS_FILE -Encoding UTF8
 
@@ -21,12 +24,9 @@ Write-Host "`nRunning Indexing Benchmark (5 iterations)..." -ForegroundColor Yel
 for ($i=1; $i -le 5; $i++) {
     Write-Host "Run $i..."
     
-    # Clean recreate index
-    java -jar $JAR_PATH create-index --name benchmark_idx > $null
-    
-    # Measure time
+    # Measure a full rebuild of the index
     $Time = Measure-Command {
-        java -jar $JAR_PATH update-index $DATASET_PATH --index-name benchmark_idx
+        java -jar $JAR_PATH reindex $DATASET_PATH
     }
     
     $Seconds = $Time.TotalSeconds
@@ -41,7 +41,7 @@ for ($i=1; $i -le 5; $i++) {
 
 # --- Search Benchmark ---
 Write-Host "`nRunning Search Benchmark..." -ForegroundColor Yellow
-$QUERIES = @("elasticsearch", "java", "machine learning", "test document", "file search")
+$QUERIES = @("search", "java", "machine learning", "test document", "file search")
 
 foreach ($query in $QUERIES) {
     Write-Host "Query: $query"
@@ -51,7 +51,7 @@ foreach ($query in $QUERIES) {
         # Note: For pure query latency, we should rely on the internal logs/output of the tool
         # which reports "Query time: X ms"
         
-        $Output = java -jar $JAR_PATH search "$query" --index-name benchmark_idx --output json
+        $Output = java -jar $JAR_PATH search "$query" --output json
         # Parse JSON to get tookMs would be ideal, but requires jq or complex parsing
         # Here we just measure wall clock for the CLI call as a proxy for user experience
     }
