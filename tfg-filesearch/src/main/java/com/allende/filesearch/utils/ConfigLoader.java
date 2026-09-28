@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 
 /**
  * Utility class to load configuration from YAML file.
@@ -13,6 +14,8 @@ import java.io.InputStream;
 public class ConfigLoader {
     private static final String DEFAULT_CONFIG_FILE = "application.yml";
     private static final String LEGACY_CONFIG_FILE = "config.yaml";
+    /** Tesseract folder chosen by the launcher, e.g. the copy bundled with the Windows installer. */
+    public static final String TESSERACT_PATH_ENV = "FILESEARCH_TESSERACT_PATH";
     private static Config instance;
 
     public static synchronized Config load() {
@@ -25,6 +28,7 @@ public class ConfigLoader {
             if (instance == null) {
                 instance = new Config();
             }
+            applyEnvironment(instance, System.getenv());
         }
         return instance;
     }
@@ -53,6 +57,14 @@ public class ConfigLoader {
     private static Config loadConfigFromFile(String path) throws IOException {
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
         return mapper.readValue(new java.io.File(path), Config.class);
+    }
+
+    /** Settings the launcher passes as environment variables win over the packaged defaults. */
+    static void applyEnvironment(Config config, Map<String, String> env) {
+        String tesseractPath = env.get(TESSERACT_PATH_ENV);
+        if (tesseractPath != null && !tesseractPath.isBlank()) {
+            config.getOcr().setTesseractPath(tesseractPath);
+        }
     }
 
     public static void reload() {

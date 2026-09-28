@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Database, FolderOpen, XCircle, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Database, FolderOpen, XCircle, ShieldCheck, KeyRound } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { cn } from '../lib/utils';
 import { cancelIndexing, getIndexStatus, startIndexing } from '../services/searchApi';
-import { IndexStatus } from '../types';
+import { IndexStatus, LicenseState } from '../types';
+import { useLicenseStore } from '../store/useLicenseStore';
 import { IndexingProgress } from '../components/IndexingProgress';
 
 const POLL_INTERVAL_MS = 500;
@@ -46,6 +47,26 @@ export const SettingsPage: React.FC = () => {
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
             refreshStatus();
+        }
+    };
+
+    const { license, setLicense, refresh: refreshLicense } = useLicenseStore();
+    const [licenseMessage, setLicenseMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+    useEffect(() => {
+        refreshLicense();
+    }, [refreshLicense]);
+
+    const handleInstallLicense = async () => {
+        if (!window.electronAPI) return;
+        setLicenseMessage(null);
+        try {
+            const result = await window.electronAPI.installLicense();
+            setLicense(result.state);
+            if (result.error) setLicenseMessage({ text: result.error, error: true });
+            else if (result.installed) setLicenseMessage({ text: 'Licence installed.', error: false });
+        } catch (err) {
+            setLicenseMessage({ text: err instanceof Error ? err.message : String(err), error: true });
         }
     };
 
@@ -130,6 +151,35 @@ export const SettingsPage: React.FC = () => {
                 </div>
             </section>
 
+            <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600 dark:text-blue-400">
+                        <KeyRound className="w-5 h-5" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Licence</h2>
+                </div>
+                <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
+                    <div className="min-w-0 text-sm text-gray-600 dark:text-gray-300">
+                        <LicenseSummary license={license} />
+                    </div>
+                    <button
+                        onClick={handleInstallLicense}
+                        disabled={!window.electronAPI}
+                        className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Install Licence…
+                    </button>
+                </div>
+                {licenseMessage && (
+                    <p
+                        role={licenseMessage.error ? 'alert' : 'status'}
+                        className={cn('mt-4 text-sm', licenseMessage.error ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}
+                    >
+                        {licenseMessage.text}
+                    </p>
+                )}
+            </section>
+
             <section className="flex items-start gap-3 p-4 text-sm text-gray-600 dark:text-gray-300">
                 <ShieldCheck className="w-5 h-5 shrink-0 text-green-600 dark:text-green-400" />
                 <p>
@@ -139,4 +189,44 @@ export const SettingsPage: React.FC = () => {
             </section>
         </div>
     );
+};
+
+const formatDate = (date: string) => new Date(date.length === 10 ? `${date}T12:00:00Z` : date).toLocaleDateString();
+
+const LicenseSummary: React.FC<{ license: LicenseState | null }> = ({ license }) => {
+    if (!license) return <p>Checking licence…</p>;
+    switch (license.kind) {
+        case 'trial':
+            return (
+                <>
+                    <h3 className="font-medium text-gray-900 dark:text-white">Trial version</h3>
+                    <p>{license.daysLeft} {license.daysLeft === 1 ? 'day' : 'days'} left, until {formatDate(license.endsAt)}.</p>
+                </>
+            );
+        case 'trial-ended':
+            return (
+                <>
+                    <h3 className="font-medium text-gray-900 dark:text-white">Trial ended</h3>
+                    <p>Search keeps working, but the index is no longer updated until a licence is installed.</p>
+                </>
+            );
+        case 'licensed':
+        case 'expired':
+            return (
+                <>
+                    <h3 className="font-medium text-gray-900 dark:text-white truncate" title={license.details.customer}>
+                        {license.details.customer}
+                    </h3>
+                    <p>
+                        Licence {license.details.id} · {license.details.seats} {license.details.seats === 1 ? 'computer' : 'computers'} ·{' '}
+                        {license.details.expiresAt === null
+                            ? 'no end date'
+                            : `${license.kind === 'expired' ? 'ended' : 'valid until'} ${formatDate(license.details.expiresAt)}`}
+                    </p>
+                    {license.kind === 'expired' && (
+                        <p className="text-amber-700 dark:text-amber-400">Search keeps working, but the index is no longer updated.</p>
+                    )}
+                </>
+            );
+    }
 };

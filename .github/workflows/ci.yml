@@ -44,7 +44,7 @@ jobs:
       run:
         working-directory: tfg-filesearch-gui
     env:
-      # Packaging is not part of CI yet, so skip the Electron binary download.
+      # Packaging happens in the windows-installer job; this one needs no Electron binary.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
     steps:
@@ -71,3 +71,65 @@ jobs:
 
     - name: Audit production dependencies
       run: npm audit --omit=dev --audit-level=high
+
+  # Builds the Windows installer with its own Java runtime and Tesseract, checks the
+  # bundled engine end to end, and keeps the installer as a downloadable artifact.
+  windows-installer:
+    runs-on: windows-latest
+    needs: [ backend, frontend ]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 21 (for jlink)
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Build the search engine
+      working-directory: tfg-filesearch
+      run: mvn -B package -DskipTests --file pom.xml
+
+    - name: Install Tesseract
+      run: choco install tesseract -y --no-progress
+
+    - name: Bundle Java and Tesseract
+      shell: bash
+      run: scripts/bundle-runtime.sh "/c/Program Files/Tesseract-OCR"
+
+    - name: Check the bundled engine
+      shell: bash
+      run: |
+        R="$PWD/tfg-filesearch-gui/build/runtime"
+        export FILESEARCH_TESSERACT_PATH="$(cygpath -w "$R/tesseract")"
+        export TESSDATA_PREFIX="$(cygpath -w "$R/tesseract/tessdata")"
+        "$R/jre/bin/java.exe" -jar "$R/filesearch.jar" doctor | tee doctor.txt
+        grep -q "\[OK  \] OCR" doctor.txt
+        JAVA="$R/jre/bin/java.exe" PYTHON=python scripts/smoke-test.sh "$R/filesearch.jar"
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: tfg-filesearch-gui/package-lock.json
+
+    # NSIS cannot open files whose path is over 260 characters, and this repository's
+    # checkout folder alone is about 170, so the installer is built from a short folder.
+    - name: Build the installer
+      shell: bash
+      run: |
+        mkdir -p /c/fs
+        cp -r tfg-filesearch-gui/. /c/fs/
+        cd /c/fs
+        npm ci
+        npm run build
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: C:/fs/release/*.exe
+        if-no-files-found: error
+        retention-days: 14

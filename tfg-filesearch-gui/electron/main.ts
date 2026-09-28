@@ -1,10 +1,14 @@
 import { app, BrowserWindow, shell, ipcMain, clipboard, dialog, IpcMainInvokeEvent } from 'electron'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { isAllowedApiRequest, isOpenableDocumentPath } from './security'
 import { normalizeIndexingStats, normalizeSearchStats } from './analytics'
 import { Backend } from './backend'
+import { resolveBackendRuntime } from './runtime'
+import { canUpdateIndex, checkLicense, indexingLockedMessage, licenseState, LicenseDetails, LicenseState, MAX_LICENSE_CHARS } from './license'
+import { LICENSE_PUBLIC_KEY } from './license-key'
 
 // --- GPU Management Strategy ---
 // Fix for "Black Screen" / EGL Driver errors on macOS Intel
@@ -57,11 +61,16 @@ async function isExistingFile(filePath: string): Promise<boolean> {
     }
 }
 
-function resolveBackendJar(): string {
-    if (process.env.FILESEARCH_JAR) return process.env.FILESEARCH_JAR
-    return app.isPackaged
-        ? path.join(process.resourcesPath, 'filesearch.jar')
-        : path.join(__dirname, '../../tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar')
+function createBackend(): Backend {
+    const runtime = resolveBackendRuntime({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appDir: __dirname,
+        platform: process.platform,
+        env: process.env,
+        exists: existsSync,
+    })
+    return new Backend(runtime)
 }
 
 /** Where the backend keeps its index, statistics and logs (same rule as the Java AppPaths). */
@@ -89,6 +98,37 @@ async function approveFolder(folder: string): Promise<void> {
     const folders = new Set(await readApprovedFolders())
     folders.add(folder)
     await fs.writeFile(approvedFoldersFile(), JSON.stringify([...folders]), 'utf-8')
+}
+
+// --- Licence ---
+// The installed licence and the date of the first launch live in the app's user data folder.
+const licenseFile = () => path.join(app.getPath('userData'), 'license.lic')
+const trialFile = () => path.join(app.getPath('userData'), 'trial.json')
+
+async function trialStarted(): Promise<Date> {
+    try {
+        const { startedAt } = JSON.parse(await fs.readFile(trialFile(), 'utf-8'))
+        const date = new Date(startedAt)
+        if (typeof startedAt === 'string' && !Number.isNaN(date.getTime())) return date
+    } catch {
+        // First launch, or an unreadable file: start the trial now.
+    }
+    const now = new Date()
+    await fs.writeFile(trialFile(), JSON.stringify({ startedAt: now.toISOString() }), 'utf-8')
+    return now
+}
+
+async function installedLicense(): Promise<LicenseDetails | null> {
+    try {
+        const check = checkLicense(await fs.readFile(licenseFile(), 'utf-8'), LICENSE_PUBLIC_KEY)
+        return check.ok ? check.details : null
+    } catch {
+        return null
+    }
+}
+
+async function currentLicenseState(): Promise<LicenseState> {
+    return licenseState(await installedLicense(), await trialStarted(), new Date())
 }
 
 function createWindow() {
@@ -208,6 +248,28 @@ function registerIpcHandlers() {
         }
     })
 
+    handle('license:status', () => currentLicenseState())
+
+    handle('license:install', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
+            properties: ['openFile'],
+            filters: [{ name: 'Licence', extensions: ['lic'] }],
+        })
+        if (canceled || filePaths.length === 0) return { installed: false, state: await currentLicenseState() }
+        let text: string
+        try {
+            const file = await fs.stat(filePaths[0])
+            if (file.size > MAX_LICENSE_CHARS) throw new Error()
+            text = await fs.readFile(filePaths[0], 'utf-8')
+        } catch {
+            return { installed: false, error: 'This file is not a licence.', state: await currentLicenseState() }
+        }
+        const check = checkLicense(text, LICENSE_PUBLIC_KEY)
+        if (!check.ok) return { installed: false, error: check.reason, state: await currentLicenseState() }
+        await fs.writeFile(licenseFile(), text.trim() + '\n', 'utf-8')
+        return { installed: true, state: await currentLicenseState() }
+    })
+
     handle('api:request', async (_event, request: unknown) => {
         if (!isAllowedApiRequest(request)) {
             throw new Error('Request not allowed')
@@ -217,8 +279,12 @@ function registerIpcHandlers() {
             if (!(await readApprovedFolders()).includes(folder)) {
                 throw new Error('Choose the folder again in Settings before indexing it.')
             }
+            const license = await currentLicenseState()
+            if (!canUpdateIndex(license)) {
+                throw new Error(indexingLockedMessage(license))
+            }
         }
-        backend ??= new Backend({ jarPath: resolveBackendJar(), javaPath: process.env.FILESEARCH_JAVA })
+        backend ??= createBackend()
         return backend.request(request.method, request.path, request.body)
     })
 }

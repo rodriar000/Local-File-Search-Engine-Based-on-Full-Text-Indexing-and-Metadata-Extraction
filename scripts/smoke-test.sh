@@ -5,12 +5,15 @@
 set -euo pipefail
 
 JAR="${1:-tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar}"
+# Set JAVA to test with another runtime, e.g. the one bundled with the installer.
+JAVA="${JAVA:-java}"
+PYTHON="${PYTHON:-python3}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export FILESEARCH_HOME="$WORK/home"
 mkdir -p "$WORK/docs"
 
-python3 - "$WORK/docs" <<'PY'
+"$PYTHON" - "$WORK/docs" <<'PY'
 import sys, zipfile
 docs = sys.argv[1]
 
@@ -24,7 +27,8 @@ with zipfile.ZipFile(f"{docs}/recurso.odt", "w") as z:
     z.writestr("META-INF/manifest.xml", '<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>')
     z.writestr("content.xml", '<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:text><text:p>Recurso de apelación sobre la cláusula suelo</text:p></office:text></office:body></office:document-content>')
 
-with open(f"{docs}/requerimiento.eml", "w") as f:
+# newline="" keeps the CRLF line endings exact on Windows too.
+with open(f"{docs}/requerimiento.eml", "w", newline="", encoding="utf-8") as f:
     f.write("From: Ana <ana@despacho.es>\r\nTo: luis@cliente.com\r\nSubject: Requerimiento de pago\r\n"
             "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"
             "Le remitimos el burofax por las rentas impagadas.\r\n")
@@ -32,15 +36,15 @@ with open(f"{docs}/requerimiento.eml", "w") as f:
 with zipfile.ZipFile(f"{docs}/expediente.zip", "w") as z:
     z.writestr("escritos/contestacion.txt", "Escrito de contestación a la demanda de reconvención")
 
-with open(f"{docs}/poder.rtf", "w") as f:
+with open(f"{docs}/poder.rtf", "w", newline="", encoding="utf-8") as f:
     f.write(r"{\rtf1\ansi Poder notarial otorgado en Sevilla\par}")
 PY
 
-java -jar "$JAR" update-index "$WORK/docs"
+"$JAVA" -jar "$JAR" update-index "$WORK/docs"
 
 expect_hit() {
     local query="$1" file="$2"
-    if ! java -jar "$JAR" search "$query" --output json | grep -q "$file"; then
+    if ! "$JAVA" -jar "$JAR" search "$query" --output json | grep -q "$file"; then
         echo "FAIL: searching \"$query\" did not find $file" >&2
         exit 1
     fi
