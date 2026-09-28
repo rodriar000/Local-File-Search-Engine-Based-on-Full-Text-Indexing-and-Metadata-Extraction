@@ -51,6 +51,9 @@ public class DocumentExtractor {
      * Bump when extraction changes in a way that should re-read files already
      * indexed (new formats, better text). Stored with every document.
      */
+    /** Reasons shown to the user in the indexing report. */
+    public static final String PASSWORD_PROTECTED = "Protegido con contraseña";
+    public static final String UNREADABLE = "No se pudo leer el contenido (archivo dañado o no compatible)";
     public static final int VERSION = 2;
 
     public static final List<String> DEFAULT_EXTENSIONS = List.of(
@@ -174,12 +177,12 @@ public class DocumentExtractor {
         try {
             text = parse(filePath, doc.getExtension(), metadata);
         } catch (EncryptedDocumentException e) {
-            doc.setExtractionError("Password protected");
+            doc.setExtractionError(PASSWORD_PROTECTED);
             return doc;
         } catch (TikaException | SAXException | RuntimeException e) {
             text = PLAIN_TEXT.contains(lower(doc.getExtension())) ? Files.readString(filePath, StandardCharsets.UTF_8) : null;
             if (text == null) {
-                doc.setExtractionError("Could not read the content (damaged or unsupported file)");
+                doc.setExtractionError(UNREADABLE);
                 logger.debug("Could not parse {}: {}", filePath, e.toString());
                 return doc;
             }

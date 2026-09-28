@@ -42,7 +42,7 @@ export const SearchPage: React.FC = () => {
             data = JSON.stringify(results, (_key, value) => typeof value === 'string' ? stripHighlight(value) : value, 2);
         } else {
             // Simple CSV implementation
-            const headers = ['Score', 'Title', 'Path', 'Size', 'Date', 'Snippet'];
+            const headers = ['Relevancia', 'Título', 'Ruta', 'Tamaño', 'Fecha', 'Fragmento'];
             const rows = results.hits.map(h => {
                 const snippet = stripHighlight(h.highlight?.content?.[0] || h.document.content || '').substring(0, 100).replace(/\n/g, ' ');
                 return [
@@ -61,7 +61,7 @@ export const SearchPage: React.FC = () => {
             await window.electronAPI.saveExport({
                 type,
                 data,
-                defaultPath: `search-results-${new Date().toISOString().split('T')[0]}.${type}`
+                defaultPath: `resultados-busqueda-${new Date().toISOString().split('T')[0]}.${type}`
             });
         }
     };
@@ -71,7 +71,7 @@ export const SearchPage: React.FC = () => {
     return (
         <div className="h-full flex flex-col">
             <div className="mb-8 space-y-4">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Search</h1>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Buscar</h1>
 
                 <div className="flex gap-4">
                     <div className="flex-1">
@@ -89,7 +89,7 @@ export const SearchPage: React.FC = () => {
                             <button
                                 onClick={() => handleExport('json')}
                                 className="px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm font-medium"
-                                title="Export as JSON"
+                                title="Exportar resultados como JSON"
                             >
                                 <Download className="w-4 h-4" />
                                 <span className="hidden sm:inline">JSON</span>
@@ -97,7 +97,7 @@ export const SearchPage: React.FC = () => {
                             <button
                                 onClick={() => handleExport('csv')}
                                 className="px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm font-medium"
-                                title="Export as CSV"
+                                title="Exportar resultados como CSV (Excel)"
                             >
                                 <Download className="w-4 h-4" />
                                 <span className="hidden sm:inline">CSV</span>
@@ -115,7 +115,7 @@ export const SearchPage: React.FC = () => {
                         )}
                     >
                         <Filter className="w-4 h-4" />
-                        Filters
+                        Filtros
                     </button>
                 </div>
 
@@ -128,7 +128,7 @@ export const SearchPage: React.FC = () => {
                             className="overflow-hidden"
                         >
                             <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
-                                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">File Type</h3>
+                                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Tipo de archivo</h3>
                                 <div className="flex flex-wrap gap-2">
                                     {extensions.map(ext => (
                                         <button

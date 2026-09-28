@@ -42,19 +42,21 @@ export type LicenseState =
     | { kind: 'expired'; details: LicenseDetails }
 
 const base64url = /^[A-Za-z0-9_-]+$/
+const NOT_A_LICENCE = 'Este archivo no es una licencia.'
+const DAMAGED = 'La licencia está dañada.'
 
 /** Checks a licence file's signature and contents. */
 export function checkLicense(text: string, publicKeyPem: string): LicenseCheck {
     if (!publicKeyPem.trim()) {
-        return { ok: false, reason: 'This copy of the application cannot verify licences. Contact your supplier.' }
+        return { ok: false, reason: 'Esta copia de la aplicación no puede comprobar licencias. Contacta con tu proveedor.' }
     }
     const token = text.trim()
     if (token.length > MAX_LICENSE_CHARS || !token.startsWith(LICENSE_PREFIX)) {
-        return { ok: false, reason: 'This file is not a licence.' }
+        return { ok: false, reason: NOT_A_LICENCE }
     }
     const parts = token.slice(LICENSE_PREFIX.length).split('.')
     if (parts.length !== 2 || !parts.every((part) => base64url.test(part))) {
-        return { ok: false, reason: 'This file is not a licence.' }
+        return { ok: false, reason: NOT_A_LICENCE }
     }
     const [payload, signature] = parts
 
@@ -67,17 +69,17 @@ export function checkLicense(text: string, publicKeyPem: string): LicenseCheck {
         valid = false
     }
     if (!valid) {
-        return { ok: false, reason: 'The licence is not valid for this application (it may have been altered).' }
+        return { ok: false, reason: 'La licencia no es válida para esta aplicación (puede que se haya modificado).' }
     }
 
     let details: unknown
     try {
         details = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'))
     } catch {
-        return { ok: false, reason: 'The licence is damaged.' }
+        return { ok: false, reason: DAMAGED }
     }
     if (!isLicenseDetails(details)) {
-        return { ok: false, reason: 'The licence is damaged.' }
+        return { ok: false, reason: DAMAGED }
     }
     return { ok: true, details }
 }
@@ -127,6 +129,6 @@ export function canUpdateIndex(state: LicenseState): boolean {
 }
 
 export function indexingLockedMessage(state: LicenseState): string {
-    const what = state.kind === 'trial-ended' ? 'The trial period has ended' : 'Your licence has ended'
-    return `${what}, so the index can no longer be updated. Search keeps working. Install a licence in Settings.`
+    const what = state.kind === 'trial-ended' ? 'El periodo de prueba ha terminado' : 'La licencia ha caducado'
+    return `${what} y el índice ya no se puede actualizar. Puedes seguir buscando. Instala una licencia en Configuración.`
 }

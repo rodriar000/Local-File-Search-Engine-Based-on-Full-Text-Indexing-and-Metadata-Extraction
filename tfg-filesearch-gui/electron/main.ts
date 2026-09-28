@@ -6,7 +6,8 @@ import path from 'node:path'
 import { isAllowedApiRequest, isOpenableDocumentPath } from './security'
 import { normalizeIndexingStats, normalizeSearchStats } from './analytics'
 import { Backend } from './backend'
-import { resolveBackendRuntime } from './runtime'
+import { BackendRuntime, resolveBackendRuntime } from './runtime'
+import { supportReport } from './support'
 import { canUpdateIndex, checkLicense, indexingLockedMessage, licenseState, LicenseDetails, LicenseState, MAX_LICENSE_CHARS } from './license'
 import { LICENSE_PUBLIC_KEY } from './license-key'
 
@@ -61,8 +62,8 @@ async function isExistingFile(filePath: string): Promise<boolean> {
     }
 }
 
-function createBackend(): Backend {
-    const runtime = resolveBackendRuntime({
+function backendRuntime(): BackendRuntime {
+    return resolveBackendRuntime({
         isPackaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appDir: __dirname,
@@ -70,7 +71,6 @@ function createBackend(): Backend {
         env: process.env,
         exists: existsSync,
     })
-    return new Backend(runtime)
 }
 
 /** Where the backend keeps its index, statistics and logs (same rule as the Java AppPaths). */
@@ -132,7 +132,6 @@ async function currentLicenseState(): Promise<LicenseState> {
 }
 
 function createWindow() {
-    const publicDir = process.env.VITE_PUBLIC || '';
     const distDir = process.env.DIST || '';
 
     win = new BrowserWindow({
@@ -141,7 +140,6 @@ function createWindow() {
         minWidth: 800,
         minHeight: 600,
         title: 'File Search',
-        icon: path.join(publicDir, 'electron-vite.svg'),
         show: false, // Hide until ready to prevent black flash
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
@@ -192,7 +190,7 @@ function createWindow() {
 function registerIpcHandlers() {
     handle('open-path', async (_event, filePath: unknown) => {
         if (!isOpenableDocumentPath(filePath) || !(await isExistingFile(filePath))) {
-            return 'This file cannot be opened: it no longer exists or is not a supported document type.'
+            return 'No se puede abrir este archivo: ya no existe o no es un tipo de documento admitido.'
         }
         return shell.openPath(filePath)
     })
@@ -250,10 +248,28 @@ function registerIpcHandlers() {
 
     handle('license:status', () => currentLicenseState())
 
+    handle('support:copy-info', async () => {
+        const runtime = backendRuntime()
+        backend ??= new Backend(runtime)
+        const health = await backend.request('GET', '/api/health')
+        const stats = health.status === 200 ? await backend.request('GET', '/api/stats') : null
+        const text = supportReport({
+            appVersion: app.getVersion(),
+            platform: `${process.platform} ${os.release()}`,
+            health: health.status === 200 ? (health.data as object) : { error: health.error ?? `HTTP ${health.status}` },
+            stats: stats?.status === 200 ? (stats.data as object) : null,
+            license: await currentLicenseState(),
+            usesBundledJava: runtime.javaPath !== 'java',
+            usesBundledTesseract: 'FILESEARCH_TESSERACT_PATH' in runtime.env,
+        })
+        clipboard.writeText(text)
+        return text
+    })
+
     handle('license:install', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
             properties: ['openFile'],
-            filters: [{ name: 'Licence', extensions: ['lic'] }],
+            filters: [{ name: 'Licencia', extensions: ['lic'] }],
         })
         if (canceled || filePaths.length === 0) return { installed: false, state: await currentLicenseState() }
         let text: string
@@ -262,7 +278,7 @@ function registerIpcHandlers() {
             if (file.size > MAX_LICENSE_CHARS) throw new Error()
             text = await fs.readFile(filePaths[0], 'utf-8')
         } catch {
-            return { installed: false, error: 'This file is not a licence.', state: await currentLicenseState() }
+            return { installed: false, error: 'Este archivo no es una licencia.', state: await currentLicenseState() }
         }
         const check = checkLicense(text, LICENSE_PUBLIC_KEY)
         if (!check.ok) return { installed: false, error: check.reason, state: await currentLicenseState() }
@@ -277,14 +293,14 @@ function registerIpcHandlers() {
         if (request.path === '/api/index') {
             const { folder } = request.body as { folder: string }
             if (!(await readApprovedFolders()).includes(folder)) {
-                throw new Error('Choose the folder again in Settings before indexing it.')
+                throw new Error('Vuelve a elegir la carpeta en Configuración antes de indexarla.')
             }
             const license = await currentLicenseState()
             if (!canUpdateIndex(license)) {
                 throw new Error(indexingLockedMessage(license))
             }
         }
-        backend ??= createBackend()
+        backend ??= new Backend(backendRuntime())
         return backend.request(request.method, request.path, request.body)
     })
 }

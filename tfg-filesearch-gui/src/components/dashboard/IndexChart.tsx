@@ -26,11 +26,14 @@ export const IndexChart: React.FC<IndexChartProps> = ({ data }) => {
                         dy={10}
                     />
                     <YAxis
+                        allowDecimals={false}
+                        tickFormatter={(value: number) => value.toLocaleString('es-ES')}
                         axisLine={false}
                         tickLine={false}
                         tick={{ fill: '#6b7280', fontSize: 12 }}
                     />
                     <Tooltip
+                        formatter={(value) => [value, 'Documentos']}
                         cursor={{ fill: 'transparent' }}
                         contentStyle={{
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',

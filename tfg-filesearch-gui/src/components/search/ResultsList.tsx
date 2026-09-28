@@ -42,12 +42,12 @@ export const ResultsList: React.FC<ResultsListProps> = ({ results, loading, onRe
         <div className="space-y-4 pb-10">
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 px-1">
                 <span>
-                    Found {results.totalHits} results
+                    {results.totalHits.toLocaleString('es-ES')} {results.totalHits === 1 ? 'documento encontrado' : 'documentos encontrados'}
                     <span className="ml-1 text-xs opacity-75">
-                        ({results.metrics?.execution.totalTimeMs.toFixed(0) || results.took}ms)
+                        ({results.metrics?.execution.totalTimeMs.toFixed(0) || results.took} ms)
                     </span>
                 </span>
-                <span>Top {results.hits.length} matches</span>
+                {results.totalHits > results.hits.length && <span>Se muestran los {results.hits.length} más relevantes</span>}
             </div>
 
             <AnimatePresence mode="popLayout">

@@ -16,7 +16,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
     onChange,
     onClear,
     loading,
-    placeholder = "Search documents...",
+    placeholder = "Buscar en los documentos…",
     className
 }) => {
     return (
@@ -40,6 +40,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
                 ) : value ? (
                     <button
                         onClick={onClear}
+                        aria-label="Borrar búsqueda"
                         className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     >
                         <X className="h-4 w-4" />

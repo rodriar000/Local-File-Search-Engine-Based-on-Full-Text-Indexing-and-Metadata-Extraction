@@ -79,3 +79,8 @@ tfg-filesearch-gui/release/
 
 # Licence signing keys must never be committed
 *.pem
+
+# Installer resources (icon) are committed; only the bundled runtime is generated
+!tfg-filesearch-gui/build/
+tfg-filesearch-gui/build/*
+!tfg-filesearch-gui/build/icon.png

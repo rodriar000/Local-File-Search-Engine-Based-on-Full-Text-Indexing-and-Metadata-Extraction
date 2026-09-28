@@ -7,7 +7,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
@@ -142,7 +146,7 @@ class IndexSynchronizerTest {
         SyncReport report = sync();
 
         assertThat(report.failed()).isEqualTo(1);
-        assertThat(report.failures().get(0).reason()).contains("Could not read");
+        assertThat(report.failures().get(0).reason()).isEqualTo(DocumentExtractor.UNREADABLE);
         assertThat(report.withoutText()).isZero();
         assertThat(hits("roto")).isEqualTo(1);
     }
@@ -187,5 +191,15 @@ class IndexSynchronizerTest {
         synchronizer.syncFile(file);
         index.commit();
         assertThat(hits("embargo")).isZero();
+    }
+
+    @Test
+    void explainsFailuresInWordsTheUserCanActOn() {
+        assertThat(IndexSynchronizer.describe(new AccessDeniedException("C:\\x.pdf"))).isEqualTo("Sin permiso para leer el archivo");
+        assertThat(IndexSynchronizer.describe(new NoSuchFileException("x"))).isEqualTo("El archivo ya no existe");
+        assertThat(IndexSynchronizer.describe(new FileSystemException("x", null, "being used by another process")))
+                .contains("en uso");
+        assertThat(IndexSynchronizer.describe(new IOException("disk"))).isEqualTo("Error al leer el archivo");
+        assertThat(IndexSynchronizer.describe(new IllegalStateException("parser bug"))).isEqualTo(DocumentExtractor.UNREADABLE);
     }
 }

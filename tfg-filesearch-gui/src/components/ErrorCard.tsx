@@ -16,7 +16,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     message,
     onRetry,
     onAction,
-    actionLabel = 'Take Action'
+    actionLabel = 'Continuar'
 }) => {
     const getIcon = () => {
         switch (type) {
@@ -32,11 +32,11 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     const getTitle = () => {
         switch (type) {
             case 'offline':
-                return 'Search Engine Unavailable';
+                return 'El buscador no está disponible';
             case 'no-index':
-                return 'Index Not Found';
+                return 'Aún no hay documentos indexados';
             default:
-                return 'Something Went Wrong';
+                return 'Algo ha fallado';
         }
     };
 
@@ -45,7 +45,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
             case 'offline':
                 return message;
             case 'no-index':
-                return 'Nothing has been indexed yet. Choose your documents folder to start searching.';
+                return 'Elige la carpeta de documentos en Configuración para empezar a buscar.';
             default:
                 return message;
         }
@@ -54,7 +54,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     const getHelpText = () => {
         switch (type) {
             case 'offline':
-                return 'The search engine runs on this computer and needs Java 17 or later.';
+                return 'El buscador funciona en este ordenador. Si el problema continúa, cierra y vuelve a abrir la aplicación.';
             case 'no-index':
                 return '';
             default:
@@ -88,7 +88,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
                         {onRetry && (
                             <Button onClick={onRetry} variant="outline">
                                 <RefreshCw className="w-4 h-4 mr-2" />
-                                Retry Connection
+                                Reintentar
                             </Button>
                         )}
 

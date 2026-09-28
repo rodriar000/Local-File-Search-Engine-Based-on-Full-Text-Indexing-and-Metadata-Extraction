@@ -56,9 +56,6 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
                         <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 truncate pr-4">
                             <HighlightedText fragment={titlePreview} />
                         </h3>
-                        <span className="text-xs font-mono text-gray-400 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded">
-                            Score: {hit.score.toFixed(2)}
-                        </span>
                     </div>
 
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-4 font-mono">
@@ -68,7 +65,7 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
                         </span>
                         <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {doc.modified_at ? new Date(doc.modified_at).toLocaleDateString() : 'N/A'}
+                            {doc.modified_at ? new Date(doc.modified_at).toLocaleDateString('es-ES') : 'Sin fecha'}
                         </span>
                         <span className="flex items-center gap-1">
                             {formatBytes(doc.size)}

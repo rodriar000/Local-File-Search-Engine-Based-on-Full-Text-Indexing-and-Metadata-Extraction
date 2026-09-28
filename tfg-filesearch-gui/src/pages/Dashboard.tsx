@@ -36,7 +36,7 @@ export function Dashboard() {
         type: error instanceof IndexMissingError ? 'no-index'
           : error instanceof SearchEngineUnavailableError ? 'offline'
           : 'error',
-        message: error instanceof Error ? error.message : 'Could not load index statistics.',
+        message: error instanceof Error ? error.message : 'No se pudo cargar el resumen del índice.',
       });
     }
     setAnalytics(analyticsResult.status === 'fulfilled' ? analyticsResult.value : null);
@@ -63,9 +63,9 @@ export function Dashboard() {
   return (
     <div className="p-8 max-w-7xl mx-auto pb-24 space-y-8">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard Overview</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Inicio</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-2">
-          System performance metrics and indexing statistics.
+          Resumen de los documentos indexados en este ordenador.
         </p>
       </header>
 
@@ -78,7 +78,7 @@ export function Dashboard() {
           message={loadError.message}
           onRetry={loadData}
           onAction={loadError.type === 'no-index' ? () => navigate('/settings') : undefined}
-          actionLabel="Index a Folder"
+          actionLabel="Elegir carpeta"
         />
       )}
 
@@ -86,13 +86,13 @@ export function Dashboard() {
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatCard
-            title="Indexed Documents"
-            value={stats.documentCount.toLocaleString()}
+            title="Documentos indexados"
+            value={stats.documentCount.toLocaleString('es-ES')}
             icon={FileText}
             color="blue"
           />
           <StatCard
-            title="Index Size"
+            title="Tamaño del índice"
             value={formatBytes(stats.sizeInBytes)}
             icon={Database}
             color="purple"
@@ -107,11 +107,11 @@ export function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
         >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">File Type Distribution</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Documentos por tipo</h3>
           {chartData.length > 0 ? (
             <IndexChart data={chartData} />
           ) : (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No documents indexed yet.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Aún no hay documentos indexados.</p>
           )}
         </motion.div>
 
@@ -121,20 +121,20 @@ export function Dashboard() {
           transition={{ delay: 0.1 }}
           className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
         >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Accesos rápidos</h3>
           <div className="space-y-3">
             <button
               onClick={() => navigate('/search')}
               className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between"
             >
-              <span className="font-medium">Search Documents</span>
+              <span className="font-medium">Buscar documentos</span>
               <Search className="w-4 h-4" />
             </button>
             <button
               onClick={() => navigate('/settings')}
               className="w-full text-left px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center justify-between"
             >
-              <span className="font-medium">Index a Folder</span>
+              <span className="font-medium">Elegir carpeta de documentos</span>
               <FolderOpen className="w-4 h-4" />
             </button>
           </div>

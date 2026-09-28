@@ -31,7 +31,7 @@ export function useSearch() {
                 if (requestId === latestRequest.current) setResults(res);
             } catch (err) {
                 if (requestId !== latestRequest.current) return;
-                setError(err instanceof Error ? err.message : 'Could not connect to the search engine.');
+                setError(err instanceof Error ? err.message : 'No se pudo conectar con el buscador.');
                 setResults(null);
             } finally {
                 if (requestId === latestRequest.current) setLoading(false);

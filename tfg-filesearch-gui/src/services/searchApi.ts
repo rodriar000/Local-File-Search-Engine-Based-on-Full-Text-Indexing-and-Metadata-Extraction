@@ -7,21 +7,21 @@ import { DocumentPreviewData, IndexStats, IndexStatus, SearchFilters, SearchResu
 
 export class SearchEngineUnavailableError extends Error {
     constructor(reason?: string) {
-        super(reason ?? 'Search requires the desktop application.');
+        super(reason ?? 'La búsqueda necesita la aplicación de escritorio.');
         this.name = 'SearchEngineUnavailableError';
     }
 }
 
 export class IndexMissingError extends Error {
     constructor() {
-        super('Nothing has been indexed yet. Choose a documents folder in Settings.');
+        super('Aún no hay documentos indexados. Elige la carpeta de documentos en Configuración.');
         this.name = 'IndexMissingError';
     }
 }
 
 export class IndexingAlreadyRunningError extends Error {
     constructor() {
-        super('Indexing is already running.');
+        super('Ya se está actualizando el índice.');
         this.name = 'IndexingAlreadyRunningError';
     }
 }
@@ -49,7 +49,7 @@ async function apiRequest<T>(method: Method, path: string, body?: unknown): Prom
 function assertOk(status: number, data: unknown, operation: string) {
     if (status >= 200 && status < 300) return;
     const detail = typeof data === 'object' && data !== null && 'error' in data ? `: ${String((data as { error: unknown }).error)}` : '';
-    throw new Error(`${operation} failed (HTTP ${status}${detail}).`);
+    throw new Error(`No se pudo ${operation} (HTTP ${status}${detail}).`);
 }
 
 // ------------------------------------------------------------------ search
@@ -138,14 +138,14 @@ export function toSearchResult(response: ApiSearchResponse, query: string, filte
 export async function search(query: string, filters: SearchFilters, from = 0, size = 20): Promise<SearchResult> {
     const startTime = performance.now();
     const { status, data } = await apiRequest<ApiSearchResponse>('POST', '/api/search', toSearchBody(query, filters, from, size));
-    assertOk(status, data, 'Search');
+    assertOk(status, data, 'buscar');
     return toSearchResult(data, query, filters, performance.now() - startTime);
 }
 
 export async function getPreview(path: string, query: string): Promise<DocumentPreviewData> {
     const { status, data } = await apiRequest<DocumentPreviewData>('POST', '/api/preview', { path, query });
-    if (status === 404) throw new Error('This document is no longer in the index. Update the index in Settings.');
-    assertOk(status, data, 'Loading the preview');
+    if (status === 404) throw new Error('Este documento ya no está en el índice. Actualiza el índice en Configuración.');
+    assertOk(status, data, 'cargar la vista previa');
     return data;
 }
 
@@ -160,7 +160,7 @@ interface ApiIndexSummary {
 
 export async function getStats(): Promise<IndexStats> {
     const { status, data } = await apiRequest<ApiIndexSummary>('GET', '/api/stats');
-    assertOk(status, data, 'Loading index statistics');
+    assertOk(status, data, 'cargar el resumen del índice');
     if (!data.exists || data.documentCount === 0) throw new IndexMissingError();
     return { documentCount: data.documentCount, sizeInBytes: data.sizeBytes, fileTypes: data.fileTypes };
 }
@@ -170,18 +170,18 @@ export async function getStats(): Promise<IndexStats> {
 export async function startIndexing(folder: string): Promise<IndexStatus> {
     const { status, data } = await apiRequest<IndexStatus>('POST', '/api/index', { folder });
     if (status === 409) throw new IndexingAlreadyRunningError();
-    assertOk(status, data, 'Indexing');
+    assertOk(status, data, 'actualizar el índice');
     return data;
 }
 
 export async function getIndexStatus(): Promise<IndexStatus> {
     const { status, data } = await apiRequest<IndexStatus>('GET', '/api/index/status');
-    assertOk(status, data, 'Reading indexing progress');
+    assertOk(status, data, 'leer el progreso de la indexación');
     return data;
 }
 
 export async function cancelIndexing(): Promise<IndexStatus> {
     const { status, data } = await apiRequest<IndexStatus>('POST', '/api/index/cancel');
-    assertOk(status, data, 'Cancelling indexing');
+    assertOk(status, data, 'cancelar la indexación');
     return data;
 }

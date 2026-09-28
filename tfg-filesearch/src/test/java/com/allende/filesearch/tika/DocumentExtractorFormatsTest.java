@@ -141,7 +141,7 @@ class DocumentExtractorFormatsTest {
         Document doc = extractor.extractDocument(file);
 
         assertThat(doc.getContent()).isEmpty();
-        assertThat(doc.getExtractionError()).isEqualTo("Password protected");
+        assertThat(doc.getExtractionError()).isEqualTo(DocumentExtractor.PASSWORD_PROTECTED);
         assertThat(doc.getFilename()).isEqualTo("protegido.pdf");
     }
 

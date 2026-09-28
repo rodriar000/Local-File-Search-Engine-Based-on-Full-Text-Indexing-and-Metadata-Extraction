@@ -64,7 +64,7 @@ export class Backend {
             return {
                 status: 0,
                 data: null,
-                error: timedOut ? 'The search engine took too long to respond.' : 'The search engine stopped unexpectedly.',
+                error: timedOut ? 'El buscador ha tardado demasiado en responder.' : 'El buscador se ha detenido de forma inesperada.',
             }
         }
     }
@@ -90,11 +90,11 @@ export class Backend {
     }
 
     private async start(): Promise<number> {
-        if (this.stopping) throw new Error('The application is closing.')
+        if (this.stopping) throw new Error('La aplicación se está cerrando.')
         try {
             if (!(await fs.stat(this.options.jarPath)).isFile()) throw new Error()
         } catch {
-            throw new Error(`Search engine not found at ${this.options.jarPath}. Build the backend with "mvn package" first.`)
+            throw new Error(`No se encuentra el motor de búsqueda en ${this.options.jarPath}. Vuelve a instalar la aplicación.`)
         }
 
         this.token = randomBytes(32).toString('hex')
@@ -126,7 +126,7 @@ export class Backend {
             }
             const timer = setTimeout(() => {
                 child.kill()
-                settle(new Error('The search engine did not start in time.'))
+                settle(new Error('El buscador no ha arrancado a tiempo. Cierra y vuelve a abrir la aplicación.'))
             }, START_TIMEOUT_MS)
 
             child.stdout?.on('data', (chunk: Buffer) => {
@@ -140,18 +140,18 @@ export class Backend {
                 this.process = null
                 this.port = 0
                 settle(new Error(error.code === 'ENOENT'
-                    ? 'Java was not found. Install Java 17 or later to run the search engine.'
-                    : `Could not start the search engine: ${error.message}`))
+                    ? 'No se encuentra Java, que el buscador necesita. Vuelve a instalar la aplicación.'
+                    : `No se pudo arrancar el buscador: ${error.message}`))
             })
 
             child.on('exit', (code) => {
                 this.process = null
                 this.port = 0
                 if (code === EXIT_INDEX_LOCKED) {
-                    settle(new Error('The index is in use by another copy of the application. Close it and try again.'))
+                    settle(new Error('El índice lo está usando otra ventana de la aplicación. Ciérrala y vuelve a intentarlo.'))
                 } else {
                     if (!this.stopping) console.error(`[backend] exited with code ${code}\n${log}`)
-                    settle(new Error(`The search engine stopped (exit code ${code}).`))
+                    settle(new Error(`El buscador se ha detenido (código ${code}).`))
                 }
             })
         })

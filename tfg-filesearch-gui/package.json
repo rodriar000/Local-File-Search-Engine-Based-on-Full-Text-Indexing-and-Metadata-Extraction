@@ -74,7 +74,12 @@
             "oneClick": false,
             "perMachine": false,
             "allowToChangeInstallationDirectory": true,
-            "deleteAppDataOnUninstall": false
+            "deleteAppDataOnUninstall": false,
+            "installerLanguages": [
+                "es_ES"
+            ],
+            "language": "3082",
+            "multiLanguageInstaller": false
         },
         "linux": {
             "target": "AppImage"

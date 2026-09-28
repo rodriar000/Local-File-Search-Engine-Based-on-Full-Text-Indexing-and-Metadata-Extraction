@@ -37,7 +37,7 @@ describe('checkLicense', () => {
     })
 
     it('rejects files that are not licences or have bad details', () => {
-        expect(checkLicense('hello', publicKey)).toEqual({ ok: false, reason: 'This file is not a licence.' })
+        expect(checkLicense('hello', publicKey)).toEqual({ ok: false, reason: 'Este archivo no es una licencia.' })
         expect(checkLicense('FSL1.a.b.c', publicKey).ok).toBe(false)
         expect(checkLicense('FSL1.' + 'a'.repeat(5000) + '.b', publicKey).ok).toBe(false)
         expect(checkLicense(issueLicense(privateKey, { ...details, seats: 0 }), publicKey).ok).toBe(false)
@@ -62,7 +62,7 @@ describe('licenseState', () => {
         const state = licenseState(null, started, new Date(started.getTime() + TRIAL_DAYS * day))
         expect(state.kind).toBe('trial-ended')
         expect(canUpdateIndex(state)).toBe(false)
-        expect(indexingLockedMessage(state)).toContain('trial period has ended')
+        expect(indexingLockedMessage(state)).toContain('periodo de prueba ha terminado')
     })
 
     it('is valid through the last day of the licence', () => {

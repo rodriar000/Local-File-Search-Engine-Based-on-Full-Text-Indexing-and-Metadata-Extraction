@@ -12,23 +12,23 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ type, query }) => {
             case 'welcome':
                 return {
                     icon: <Search className="w-20 h-20 text-gray-400 dark:text-gray-500" />,
-                    title: 'Search Your Files',
-                    description: 'Type in the search bar above to find documents, PDFs, text files, and more.',
-                    tip: 'Try searching for keywords, file names, or content within documents'
+                    title: 'Busca en tus documentos',
+                    description: 'Escribe arriba para buscar en escritos, PDF, correos y demás documentos.',
+                    tip: 'Puedes buscar palabras del contenido, nombres de archivo o frases entre comillas'
                 };
             case 'no-query':
                 return {
                     icon: <Inbox className="w-20 h-20 text-gray-400 dark:text-gray-500" />,
-                    title: 'Ready to Search',
-                    description: 'Enter a search query to get started',
+                    title: 'Listo para buscar',
+                    description: 'Escribe qué quieres encontrar',
                     tip: null
                 };
             case 'no-results':
                 return {
                     icon: <FileQuestion className="w-20 h-20 text-gray-400 dark:text-gray-500" />,
-                    title: 'No Results Found',
-                    description: query ? `No documents match "${query}"` : 'Try adjusting your search or filters',
-                    tip: 'Try different keywords or clear filters'
+                    title: 'Sin resultados',
+                    description: query ? `Ningún documento coincide con «${query}»` : 'Prueba a cambiar la búsqueda o los filtros',
+                    tip: 'Prueba con otras palabras o quita los filtros'
                 };
         }
     };
