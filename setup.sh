@@ -39,11 +39,7 @@ cd ..
 echo ""
 echo -e "${GREEN}Setting up Frontend (React)...${NC}"
 cd tfg-filesearch-gui
-if [ ! -f .env ]; then
-    echo "Creating .env from .env.example"
-    cp .env.example .env
-fi
-npm install
+npm ci
 # Optional: build frontend to verify it compiles
 npm run build
 cd ..

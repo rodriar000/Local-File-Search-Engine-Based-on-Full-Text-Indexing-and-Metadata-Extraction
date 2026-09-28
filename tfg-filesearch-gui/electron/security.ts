@@ -5,60 +5,46 @@
  * every IPC argument as hostile. These functions are pure so they can be unit tested.
  */
 import path from 'node:path';
-import { isLoopbackHttpUrl, isValidIndexName } from '../src/shared/esTarget';
-
-export { isLoopbackHttpUrl, isValidIndexName };
-
 /** Document types the indexer handles; only these may be opened from a search result. */
 export const OPENABLE_EXTENSIONS: ReadonlySet<string> = new Set([
     'txt', 'pdf', 'docx', 'doc', 'html', 'htm', 'xml', 'rtf', 'odt',
     'md', 'json', 'csv', 'pptx', 'ppt', 'xlsx', 'xls',
 ]);
 
-export const MAX_ES_BODY_BYTES = 64 * 1024;
+export const MAX_API_BODY_BYTES = 64 * 1024;
 
-export type EsMethod = 'GET' | 'HEAD' | 'POST';
+export type ApiMethod = 'GET' | 'POST';
 
-export interface EsRequest {
-    method: EsMethod;
-    /** Path relative to the Elasticsearch base URL, e.g. `/filesearch/_search`. */
+export interface ApiRequest {
+    method: ApiMethod;
+    /** Path on the local backend, e.g. `/api/search`. */
     path: string;
     body?: unknown;
 }
 
-export interface EsTarget {
-    url: string;
-    indexName: string;
-}
+/** Everything the UI may ask the backend; the list is exhaustive. */
+const API_ROUTES: Readonly<Record<string, ApiMethod>> = {
+    '/api/health': 'GET',
+    '/api/stats': 'GET',
+    '/api/search': 'POST',
+    '/api/index': 'POST',
+    '/api/index/status': 'GET',
+    '/api/index/cancel': 'POST',
+};
 
-/**
- * Read-only operations the UI needs. Anything else (deleting the index,
- * cluster settings, other indices) is refused.
- */
-export function isAllowedEsRequest(request: unknown, indexName: string): request is EsRequest {
+const ROUTES_WITH_BODY: ReadonlySet<string> = new Set(['/api/search', '/api/index']);
+
+export function isAllowedApiRequest(request: unknown): request is ApiRequest {
     if (typeof request !== 'object' || request === null) return false;
     const { method, path: reqPath, body } = request as Record<string, unknown>;
     if (typeof method !== 'string' || typeof reqPath !== 'string') return false;
+    if (!Object.prototype.hasOwnProperty.call(API_ROUTES, reqPath) || API_ROUTES[reqPath] !== method) return false;
 
-    const allowed: Record<string, EsMethod> = {
-        '/': 'GET',
-        [`/${indexName}`]: 'HEAD',
-        [`/${indexName}/_stats`]: 'GET',
-        [`/${indexName}/_search`]: 'POST',
-    };
-    if (allowed[reqPath] !== method) return false;
-
-    if (method === 'POST') {
-        if (typeof body !== 'object' || body === null || Array.isArray(body)) return false;
-        return JSON.stringify(body).length <= MAX_ES_BODY_BYTES;
-    }
-    return body === undefined;
-}
-
-export function isValidEsTarget(target: unknown): target is EsTarget {
-    if (typeof target !== 'object' || target === null) return false;
-    const { url, indexName } = target as Record<string, unknown>;
-    return isLoopbackHttpUrl(url) && isValidIndexName(indexName);
+    if (!ROUTES_WITH_BODY.has(reqPath)) return body === undefined;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return false;
+    if (JSON.stringify(body).length > MAX_API_BODY_BYTES) return false;
+    if (reqPath === '/api/index') return isValidIndexFolder((body as Record<string, unknown>).folder);
+    return true;
 }
 
 /**

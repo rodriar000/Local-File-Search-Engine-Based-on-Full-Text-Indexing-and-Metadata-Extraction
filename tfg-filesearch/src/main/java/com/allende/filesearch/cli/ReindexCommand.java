@@ -1,53 +1,43 @@
 package com.allende.filesearch.cli;
 
-import com.allende.filesearch.elastic.ElasticsearchService;
-import com.allende.filesearch.model.Config;
-import com.allende.filesearch.utils.ConfigLoader;
+import com.allende.filesearch.index.DocumentIndex;
+import com.allende.filesearch.index.IndexLockedException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.Callable;
 
 /**
- * Command to reindex all documents (recreate index from scratch).
+ * Rebuilds the index from scratch, e.g. after changing extraction settings.
  */
-@Command(name = "reindex", description = "Reindex all documents (delete and recreate index)", mixinStandardHelpOptions = true)
+@Command(name = "reindex", description = "Clear the index and index a folder from scratch", mixinStandardHelpOptions = true)
 public class ReindexCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", description = "Directory path to reindex")
+    @Parameters(index = "0", description = "Folder to index")
     private String path;
 
     @Override
-    public Integer call() throws Exception {
-        System.out.println("Starting reindex operation...");
-        System.out.println("WARNING: This will delete the existing index and recreate it.");
+    public Integer call() {
+        Path folder = Paths.get(path);
+        if (!Files.isDirectory(folder)) {
+            System.err.println("Folder not found: " + path);
+            return 1;
+        }
 
-        Config config = ConfigLoader.load();
-        String indexName = config.getElasticsearch().getIndexName();
-
-        try (ElasticsearchService esService = new ElasticsearchService(config)) {
-            // Delete existing index if it exists
-            if (esService.getIndexManager().indexExists(indexName)) {
-                System.out.println("Deleting existing index '" + indexName + "'...");
-                esService.getIndexManager().deleteIndex(indexName);
-            }
-
-            // Create new index
-            System.out.println("Creating new index '" + indexName + "'...");
-            esService.getIndexManager().createIndex(indexName);
-
-            // Now run update-index using setter methods
-            System.out.println("\nStarting indexing...");
-            UpdateIndexCommand updateCmd = new UpdateIndexCommand();
-            updateCmd.setPath(this.path);
-            updateCmd.setRecursive(true);
-            updateCmd.setCreateIfMissing(false); // We just created it
-
-            return updateCmd.call();
-
+        DependencyContainer container = DependencyContainer.getInstance();
+        try (DocumentIndex index = container.openIndexForWriting()) {
+            System.out.println("Clearing the index at " + container.getIndexDirectory());
+            index.deleteAll();
+            index.commit();
+            return IndexingRunner.run(index, folder, System.out).cancelled() ? 1 : 0;
+        } catch (IndexLockedException e) {
+            System.err.println(e.getMessage());
+            return 2;
         } catch (Exception e) {
-            System.err.println("✗ Reindex failed: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Reindex failed: " + e.getMessage());
             return 1;
         }
     }

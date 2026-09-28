@@ -1,10 +1,11 @@
 /// <reference types="vite/client" />
 
-interface EsBridgeResponse {
-    /** HTTP status, or 0 when the search engine could not be reached. */
+interface ApiBridgeResponse {
+    /** HTTP status, or 0 when the search engine could not be started or reached. */
     status: number;
     data: any;
-    error?: 'timeout' | 'unreachable';
+    /** Why the search engine is unavailable, when status is 0. */
+    error?: string;
 }
 
 interface ElectronAPI {
@@ -13,12 +14,8 @@ interface ElectronAPI {
     copyToClipboard: (text: string) => Promise<void>;
     saveExport: (payload: { type: string, data: string, defaultPath?: string }) => Promise<string | null>;
     selectFolder: () => Promise<string | null>;
-    reindex: (folder: string) => Promise<string>;
     getAnalytics: () => Promise<import('./types').SystemAnalytics>;
-    esRequest: (
-        target: { url: string, indexName: string },
-        request: { method: 'GET' | 'HEAD' | 'POST', path: string, body?: unknown },
-    ) => Promise<EsBridgeResponse>;
+    apiRequest: (request: { method: 'GET' | 'POST', path: string, body?: unknown }) => Promise<ApiBridgeResponse>;
 }
 
 interface Window {

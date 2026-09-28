@@ -1,73 +1,85 @@
 package com.allende.filesearch;
 
 import com.allende.filesearch.cli.FileSearchCLI;
-import com.allende.filesearch.model.Config;
-import com.allende.filesearch.utils.ConfigLoader;
-import org.junit.jupiter.api.Tag;
+import com.allende.filesearch.index.AppPaths;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
-import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test that runs the full CLI against a real (or mocked)
- * environment.
- * Requires a running Elasticsearch instance if not using Testcontainers.
- * 
- * To run this test:
- * 1. Start Elasticsearch on localhost:9200
- * 2. Run with -DrunIT=true
+ * Runs the real CLI end to end: index a folder, search it, change it, search again.
+ * Everything happens in a temporary data folder; no external service is needed.
  */
-@Tag("integration")
 class FileSearchIntegrationTest {
 
+    @TempDir
+    Path dataHome;
+
+    @TempDir
+    Path documents;
+
+    private String previousHome;
+
+    @BeforeEach
+    void useTemporaryDataHome() {
+        previousHome = System.getProperty(AppPaths.HOME_PROPERTY);
+        System.setProperty(AppPaths.HOME_PROPERTY, dataHome.toString());
+    }
+
+    @AfterEach
+    void restoreDataHome() {
+        if (previousHome == null) {
+            System.clearProperty(AppPaths.HOME_PROPERTY);
+        } else {
+            System.setProperty(AppPaths.HOME_PROPERTY, previousHome);
+        }
+    }
+
     @Test
-    void testFullIndexingAndSearchFlow() throws IOException {
-        // Skip if not explicitly enabled to avoid breaking CI builds without ES
-        if (!"true".equals(System.getProperty("runIT"))) {
-            System.out.println("Skipping integration test. Run with -DrunIT=true to enable.");
-            return;
-        }
+    void indexesSearchesAndFollowsChanges() throws Exception {
+        Path contract = documents.resolve("contrato.txt");
+        Files.writeString(contract, "Contrato de arrendamiento firmado en Sevilla por ambas partes.");
+        Files.writeString(documents.resolve("otro.txt"), "Escrito sin relación.");
 
-        // 1. Setup Config
-        Config config = ConfigLoader.load();
-        config.getElasticsearch().setIndexName("integration_test_index");
+        assertThat(run("update-index", documents.toString())).isZero();
+        assertThat(Files.isDirectory(dataHome.resolve("index"))).isTrue();
 
-        // 2. Create Index
-        int exitCodeCreate = new CommandLine(new FileSearchCLI())
-                .execute("create-index", "--name", "integration_test_index");
-        assertThat(exitCodeCreate).isEqualTo(0);
+        String output = capture("search", "arrendamientos", "-o", "json");
+        assertThat(output).contains("contrato.txt").doesNotContain("otro.txt");
 
-        // 3. Create dummy file
-        Path tempDir = Files.createTempDirectory("filesearch_it");
-        Path testFile = tempDir.resolve("test_doc.txt");
-        Files.writeString(testFile, "This is a unique integration test content string.");
+        Files.delete(contract);
+        assertThat(run("update-index", documents.toString())).isZero();
+        assertThat(capture("search", "arrendamiento", "-o", "json")).doesNotContain("contrato.txt");
 
-        // 4. Index Document
-        int exitCodeIndex = new CommandLine(new FileSearchCLI())
-                .execute("update-index", tempDir.toString());
-        assertThat(exitCodeIndex).isEqualTo(0);
+        // Search terms must never be written to disk.
+        Path stats = dataHome.resolve("search_stats.json");
+        assertThat(stats).exists();
+        assertThat(Files.readString(stats)).doesNotContain("arrendamiento");
+    }
 
-        // Wait for refresh
+    private static int run(String... args) {
+        return new CommandLine(new FileSearchCLI()).execute(args);
+    }
+
+    private static String capture(String... args) {
+        PrintStream original = System.out;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
         try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
+            assertThat(run(args)).isZero();
+        } finally {
+            System.setOut(original);
         }
-
-        // 5. Search
-        // We capture stdout to verify results (in a real test we'd use a custom
-        // PrintStream)
-        // For now, we just check exit code
-        int exitCodeSearch = new CommandLine(new FileSearchCLI())
-                .execute("search", "unique integration", "--index-name", "integration_test_index");
-        assertThat(exitCodeSearch).isEqualTo(0);
-
-        // Cleanup
-        Files.deleteIfExists(testFile);
-        Files.deleteIfExists(tempDir);
+        return buffer.toString(StandardCharsets.UTF_8);
     }
 }

@@ -1,10 +1,7 @@
-elasticsearch:
-  host: localhost
-  port: 9200
-  scheme: http
-  indexName: filesearch
-  bulkSize: 100
-  refreshInterval: 5s
+index:
+  # Where the search index is stored. Empty = <FILESEARCH_HOME or ~/.filesearch>/index
+  directory:
+  commitEvery: 500
 
 indexing:
   extensions:
@@ -12,12 +9,21 @@ indexing:
     - pdf
     - docx
     - doc
+    - rtf
+    - odt
     - html
+    - htm
     - xml
     - md
     - json
     - csv
+    - pptx
+    - ppt
+    - xlsx
+    - xls
   maxFileSizeMb: 100
+  # Supported forms: "**/<folder>/**" skips a folder anywhere, "**/<name>" skips a file name.
+  # "*" works as a wildcard inside a name, e.g. "**/~$*" (Office lock files).
   excludePatterns:
     - "**/.git/**"
     - "**/node_modules/**"
@@ -26,7 +32,11 @@ indexing:
     - "**/.idea/**"
     - "**/.vscode/**"
     - "**/__pycache__/**"
+    - "**/$RECYCLE.BIN/**"
     - "**/.DS_Store"
+    - "**/Thumbs.db"
+    - "**/desktop.ini"
+    - "**/~$*"
   threads: 4
 
 search:

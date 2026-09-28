@@ -32,7 +32,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     const getTitle = () => {
         switch (type) {
             case 'offline':
-                return 'Elasticsearch is Offline';
+                return 'Search Engine Unavailable';
             case 'no-index':
                 return 'Index Not Found';
             default:
@@ -43,9 +43,9 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     const getDescription = () => {
         switch (type) {
             case 'offline':
-                return "Can't reach Elasticsearch. Make sure it's running on localhost:9200";
+                return message;
             case 'no-index':
-                return "The filesearch index doesn't exist yet. Create it to start searching.";
+                return 'Nothing has been indexed yet. Choose your documents folder to start searching.';
             default:
                 return message;
         }
@@ -54,9 +54,9 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
     const getHelpText = () => {
         switch (type) {
             case 'offline':
-                return 'Try: brew services start elasticsearch-full';
+                return 'The search engine runs on this computer and needs Java 17 or later.';
             case 'no-index':
-                return 'Run: java -jar filesearch.jar create-index';
+                return '';
             default:
                 return '';
         }
@@ -78,7 +78,7 @@ export const ErrorCard: React.FC<ErrorCardProps> = ({
 
                     {getHelpText() && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6 w-full">
-                            <p className="text-sm text-blue-800 dark:text-blue-200 font-mono">
+                            <p className="text-sm text-blue-800 dark:text-blue-200">
                                 {getHelpText()}
                             </p>
                         </div>

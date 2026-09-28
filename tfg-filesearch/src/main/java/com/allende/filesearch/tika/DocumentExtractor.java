@@ -86,7 +86,7 @@ public class DocumentExtractor {
 
         // Skip files that are too large
         if (attrs.size() > MAX_FILE_SIZE_BYTES) {
-            logger.warn("File too large ({}MB), skipping content extraction: {}",
+            logger.debug("File too large ({}MB), skipping content extraction: {}",
                     attrs.size() / (1024 * 1024), filePath);
             doc.setContent("");
             doc.setLastIndexedAt(Instant.now());
@@ -95,7 +95,7 @@ public class DocumentExtractor {
 
         // Skip empty files
         if (attrs.size() == 0) {
-            logger.warn("File is empty (0 bytes), skipping: {}", filePath);
+            logger.debug("File is empty (0 bytes), skipping: {}", filePath);
             doc.setContent("");
             doc.setLastIndexedAt(Instant.now());
             return doc;
@@ -106,7 +106,7 @@ public class DocumentExtractor {
             String checksum = FileUtils.calculateSHA256(filePath);
             doc.setChecksumSha256(checksum);
         } catch (IOException e) {
-            logger.warn("Could not calculate checksum for {}: {}", filePath, e.getMessage());
+            logger.debug("Could not calculate checksum for {}: {}", filePath, e.getMessage());
         }
 
         // Extract content with Tika (with fallbacks)
@@ -124,10 +124,10 @@ public class DocumentExtractor {
         long duration = System.currentTimeMillis() - startTime;
 
         if (extractedContent == null || extractedContent.isEmpty()) {
-            logger.warn("No content extracted from: {} ({}ms)",
+            logger.debug("No content extracted from: {} ({}ms)",
                     filePath.getFileName(), duration);
         } else {
-            logger.info("Successfully extracted: {} → {} chars ({} bytes, {}ms)",
+            logger.debug("Successfully extracted: {} → {} chars ({} bytes, {}ms)",
                     filePath.getFileName(), extractedContent.length(), attrs.size(), duration);
         }
 
@@ -148,7 +148,7 @@ public class DocumentExtractor {
             }
             logger.debug("Tika returned empty/invalid content, trying fallbacks...");
         } catch (Exception e) {
-            logger.warn("Tika extraction failed for {}: {}, trying fallbacks...",
+            logger.debug("Tika extraction failed for {}: {}, trying fallbacks...",
                     filePath.getFileName(), e.getMessage());
         }
 
@@ -157,7 +157,7 @@ public class DocumentExtractor {
             try {
                 content = readAsPlainText(filePath);
                 if (isValidContent(content)) {
-                    logger.info("Fallback: Read as plain text successfully");
+                    logger.debug("Fallback: Read as plain text successfully");
                     return content;
                 }
             } catch (Exception e) {
@@ -170,7 +170,7 @@ public class DocumentExtractor {
             try {
                 content = extractWithPDFBox(filePath);
                 if (isValidContent(content)) {
-                    logger.info("Fallback: PDFBox extraction successfully");
+                    logger.debug("Fallback: PDFBox extraction successfully");
                     return content;
                 }
             } catch (Exception e) {
@@ -182,7 +182,7 @@ public class DocumentExtractor {
         try {
             content = tika.parseToString(filePath.toFile());
             if (isValidContent(content)) {
-                logger.info("Fallback: Tika.parseToString succeeded");
+                logger.debug("Fallback: Tika.parseToString succeeded");
                 return content;
             }
         } catch (Exception e) {
@@ -190,7 +190,7 @@ public class DocumentExtractor {
         }
 
         // All strategies failed
-        logger.error("All extraction strategies failed for: {}", filePath.getFileName());
+        logger.debug("All extraction strategies failed for: {}", filePath.getFileName());
         return "";
     }
 
@@ -235,7 +235,7 @@ public class DocumentExtractor {
     private String extractWithPDFBox(Path filePath) throws IOException {
         try (PDDocument document = PDDocument.load(filePath.toFile())) {
             if (document.isEncrypted()) {
-                logger.warn("PDF is encrypted: {}", filePath);
+                logger.debug("PDF is encrypted: {}", filePath);
                 return "";
             }
             PDFTextStripper stripper = new PDFTextStripper();

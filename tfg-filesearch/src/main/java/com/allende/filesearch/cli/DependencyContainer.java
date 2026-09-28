@@ -1,45 +1,38 @@
 package com.allende.filesearch.cli;
 
 import com.allende.filesearch.analytics.AnalyticsManager;
+import com.allende.filesearch.index.AppPaths;
+import com.allende.filesearch.index.DocumentIndex;
 import com.allende.filesearch.model.Config;
-import com.allende.filesearch.utils.ConfigLoader;
-import com.allende.filesearch.elastic.ElasticsearchService;
 import com.allende.filesearch.tika.DocumentExtractor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.allende.filesearch.utils.ConfigLoader;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
 
+/**
+ * Shared services for CLI commands. The index itself is opened per command,
+ * read-only for searches and writable for indexing, so searching keeps working
+ * while another process updates the index.
+ */
 public class DependencyContainer {
-    private static final Logger logger = LoggerFactory.getLogger(DependencyContainer.class);
     private static DependencyContainer instance;
 
     private final Config config;
-    private final ElasticsearchService elasticsearchService;
     private final DocumentExtractor documentExtractor;
     private final AnalyticsManager analyticsManager;
 
-    private DependencyContainer() throws IOException {
-        logger.info("Initializing Dependency Container...");
-
-        // 1. Load Configuration
+    private DependencyContainer() {
         this.config = ConfigLoader.load();
-
-        // 2. Initialize Services
-        this.elasticsearchService = new ElasticsearchService(config);
-
-        // Handle potential null indexing configuration
-        java.util.List<String> extensions = (config.getIndexing() != null)
-                ? config.getIndexing().getExtensions()
-                : new java.util.ArrayList<>();
-
-        this.documentExtractor = new DocumentExtractor(extensions);
+        List<String> extensions = config.getIndexing().getExtensions();
+        this.documentExtractor = extensions != null && !extensions.isEmpty()
+                ? new DocumentExtractor(extensions)
+                : new DocumentExtractor();
         this.analyticsManager = new AnalyticsManager();
-
-        logger.info("Dependency Container initialized successfully.");
     }
 
-    public static synchronized DependencyContainer getInstance() throws IOException {
+    public static synchronized DependencyContainer getInstance() {
         if (instance == null) {
             instance = new DependencyContainer();
         }
@@ -50,10 +43,6 @@ public class DependencyContainer {
         return config;
     }
 
-    public ElasticsearchService getElasticsearchService() {
-        return elasticsearchService;
-    }
-
     public DocumentExtractor getDocumentExtractor() {
         return documentExtractor;
     }
@@ -62,13 +51,15 @@ public class DependencyContainer {
         return analyticsManager;
     }
 
-    public void close() {
-        try {
-            if (elasticsearchService != null) {
-                elasticsearchService.close();
-            }
-        } catch (IOException e) {
-            logger.error("Error closing resources", e);
-        }
+    public Path getIndexDirectory() {
+        return AppPaths.indexDirectory(config);
+    }
+
+    public DocumentIndex openIndexForWriting() throws IOException {
+        return DocumentIndex.openForWriting(getIndexDirectory());
+    }
+
+    public DocumentIndex openIndexReadOnly() throws IOException {
+        return DocumentIndex.openReadOnly(getIndexDirectory());
     }
 }

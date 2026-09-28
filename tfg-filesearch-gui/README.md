@@ -13,7 +13,7 @@ A modern desktop frontend and robust CLI for the File Search Engine, built with 
 - **Filters**: Filter by extension, size, and date.
 - **File Actions**: Open files, show in explorer, copy path.
 - **Export**: Download results for external analysis.
-- **Settings**: Configurable Elasticsearch URL and Index Name.
+- **Settings**: Choose the documents folder, index it with a progress bar and see what could not be read.
 
 ## CLI Usage
 
@@ -27,7 +27,7 @@ java -jar filesearch.jar benchmark --queries queries.txt --runs 10
 This generates a CSV report in `./out/`.
 
 ### Doctor
-Check connection health and permissions:
+Check text extraction, the index and permissions:
 ```bash
 java -jar filesearch.jar doctor
 ```
@@ -35,7 +35,6 @@ java -jar filesearch.jar doctor
 ## Prerequisites
 - Node.js (v18 or later)
 - Java 17+ (for CLI/Backend)
-- Elasticsearch running locally (default: http://localhost:9200)
 
 ## Installation & Build
 

@@ -11,11 +11,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Manages search analytics persistence and updates.
@@ -32,8 +27,7 @@ public class AnalyticsManager {
     private IndexingStats indexingStats;
 
     public AnalyticsManager() {
-        String homeDir = System.getProperty("user.home");
-        Path baseDir = Paths.get(homeDir, ".filesearch");
+        Path baseDir = com.allende.filesearch.index.AppPaths.dataHome();
         this.searchStatsPath = baseDir.resolve(SEARCH_STATS_FILENAME);
         this.indexingStatsPath = baseDir.resolve(INDEXING_STATS_FILENAME);
         this.mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
@@ -45,12 +39,7 @@ public class AnalyticsManager {
         analytics.setTotalSearches(analytics.getTotalSearches() + 1);
         analytics.setTotalSearchTimeMs(analytics.getTotalSearchTimeMs() + executionTimeMs);
 
-        // Update term frequency
-        String normalizedTerm = term.trim().toLowerCase();
-        if (normalizedTerm.length() > 2) { // Ignore very short terms
-            analytics.getTermFrequency().merge(normalizedTerm, 1, (Integer a, Integer b) -> Integer.sum(a, b));
-            keepTopTerms(50); // Keep top 50 terms internally
-        }
+        // Search terms are never stored: they can name clients or matters.
 
         // Update distribution bucket
         String bucket = getBucket(resultCount);
@@ -176,18 +165,6 @@ public class AnalyticsManager {
         return "50+";
     }
 
-    private void keepTopTerms(int limit) {
-        Map<String, Integer> sorted = analytics.getTermFrequency().entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder()))
-                .limit(limit)
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        Map.Entry::getValue,
-                        (e1, e2) -> e1,
-                        LinkedHashMap::new));
-        analytics.setTermFrequency(sorted);
-    }
-
     private void load() {
         loadSearchStats();
         loadIndexingStats();
@@ -204,6 +181,11 @@ public class AnalyticsManager {
             }
         } else {
             analytics = new SearchAnalytics();
+        }
+        if (analytics.getTermFrequency() != null && !analytics.getTermFrequency().isEmpty()) {
+            // Older versions stored search terms; drop them.
+            analytics.getTermFrequency().clear();
+            save();
         }
     }
 

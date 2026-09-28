@@ -1,12 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppConfig } from '../types';
 
 interface AppState {
     isSidebarOpen: boolean;
     toggleSidebar: () => void;
-    config: AppConfig;
-    setConfig: (config: AppConfig) => void;
     /** Folder last chosen for indexing; null until the user picks one. */
     indexFolder: string | null;
     setIndexFolder: (folder: string | null) => void;
@@ -19,13 +16,6 @@ export const useAppStore = create<AppState>()(
         (set) => ({
             isSidebarOpen: true,
             toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
-            config: {
-                elasticsearch: {
-                    url: 'http://localhost:9200',
-                    indexName: 'filesearch',
-                }
-            },
-            setConfig: (config) => set({ config }),
             indexFolder: null,
             setIndexFolder: (indexFolder) => set({ indexFolder }),
             darkMode: false,
@@ -41,21 +31,11 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'app-storage',
-            version: 1,
-            migrate: (persistedState: any, version: number) => {
-                if (version === 0) {
-                    // Migration from flat config to nested
-                    return {
-                        ...persistedState,
-                        config: {
-                            elasticsearch: {
-                                url: persistedState.config?.esUrl || 'http://localhost:9200',
-                                indexName: persistedState.config?.indexName || 'filesearch',
-                            }
-                        }
-                    };
-                }
-                return persistedState as AppState;
+            version: 2,
+            // Versions 0 and 1 stored the Elasticsearch address, which no longer exists.
+            migrate: (persistedState: any) => {
+                const { config: _removed, ...rest } = (persistedState ?? {}) as Record<string, unknown>;
+                return rest as unknown as AppState;
             },
         }
     )

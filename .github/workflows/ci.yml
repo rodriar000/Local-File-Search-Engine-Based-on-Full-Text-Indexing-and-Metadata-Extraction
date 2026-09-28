@@ -26,9 +26,13 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    # Unit tests run here; the Elasticsearch integration test needs -DrunIT=true and a live cluster.
     - name: Build and test
       run: mvn -B verify --file pom.xml
+
+    # The packaged JAR can differ from the test classpath (e.g. merged service files).
+    - name: Smoke test the packaged JAR
+      working-directory: .
+      run: scripts/smoke-test.sh
 
   frontend:
     runs-on: ubuntu-latest
