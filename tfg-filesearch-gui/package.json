@@ -2,7 +2,7 @@
     "name": "filesearch-gui",
     "private": true,
     "version": "1.0.0",
-    "description": "Private, local search for a law firm's documents",
+    "description": "Private, local search of law firm documents",
     "author": "Rodrigo Allende",
     "main": "dist-electron/main.js",
     "scripts": {

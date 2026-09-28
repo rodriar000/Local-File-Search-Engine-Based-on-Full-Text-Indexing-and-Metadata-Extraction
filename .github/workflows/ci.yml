@@ -116,14 +116,20 @@ jobs:
         cache: 'npm'
         cache-dependency-path: tfg-filesearch-gui/package-lock.json
 
+    # NSIS cannot open files whose path is over 260 characters, and this repository's
+    # checkout folder alone is about 170, so the installer is built from a short folder.
     - name: Build the installer
-      working-directory: tfg-filesearch-gui
+      shell: bash
       run: |
+        mkdir -p /c/fs
+        cp -r tfg-filesearch-gui/. /c/fs/
+        cd /c/fs
         npm ci
         npm run build
 
     - uses: actions/upload-artifact@v4
       with:
         name: windows-installer
-        path: tfg-filesearch-gui/release/*.exe
+        path: C:/fs/release/*.exe
+        if-no-files-found: error
         retention-days: 14
