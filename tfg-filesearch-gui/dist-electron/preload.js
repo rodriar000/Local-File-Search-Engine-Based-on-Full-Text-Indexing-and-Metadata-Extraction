@@ -1,14 +1,1 @@
-"use strict";
-const electron = require("electron");
-electron.contextBridge.exposeInMainWorld("electronAPI", {
-  openPath: (path) => electron.ipcRenderer.invoke("open-path", path),
-  showInFolder: (path) => electron.ipcRenderer.invoke("show-in-folder", path),
-  copyToClipboard: (text) => electron.ipcRenderer.invoke("copy-to-clipboard", text),
-  saveExport: (payload) => electron.ipcRenderer.invoke("export:save", payload),
-  on: (channel, callback) => {
-    electron.ipcRenderer.on(channel, callback);
-  },
-  off: (channel, callback) => {
-    electron.ipcRenderer.removeListener(channel, callback);
-  }
-});
+"use strict";const r=require("electron");r.contextBridge.exposeInMainWorld("electronAPI",{openPath:e=>r.ipcRenderer.invoke("open-path",e),showInFolder:e=>r.ipcRenderer.invoke("show-in-folder",e),copyToClipboard:e=>r.ipcRenderer.invoke("copy-to-clipboard",e),saveExport:e=>r.ipcRenderer.invoke("export:save",e),selectFolder:()=>r.ipcRenderer.invoke("select-folder"),reindex:e=>r.ipcRenderer.invoke("reindex",e),getAnalytics:()=>r.ipcRenderer.invoke("get-analytics"),esRequest:(e,n)=>r.ipcRenderer.invoke("es:request",e,n)});

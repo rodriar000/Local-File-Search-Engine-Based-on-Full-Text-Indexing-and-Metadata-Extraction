@@ -1,35 +1,27 @@
-import axios from 'axios';
-import { AppConfig, SearchFilters, SearchResult, SearchMetrics } from '../types';
-import { config as appConfig, initConfig } from '../config/appConfig';
+import { AppConfig, IndexStats, SearchFilters, SearchResult, SearchMetrics } from '../types';
+import { HIGHLIGHT_POST, HIGHLIGHT_PRE } from '../shared/highlight';
+import { esRequest } from './esTransport';
 
-// Initialize configuration logger
-initConfig();
+type EsTarget = AppConfig['elasticsearch'];
 
-function normalizeBaseUrl(url: string): string {
-    if (!url) return 'http://localhost:9200';
-    // Remove trailing slash
-    return url.endsWith('/') ? url.slice(0, -1) : url;
+export class IndexMissingError extends Error {
+    constructor(indexName: string) {
+        super(`The index "${indexName}" does not exist yet. Index a folder from Settings first.`);
+        this.name = 'IndexMissingError';
+    }
+}
+
+function assertOk(status: number, target: EsTarget, operation: string) {
+    if (status === 404) throw new IndexMissingError(target.indexName);
+    if (status < 200 || status >= 300) {
+        throw new Error(`${operation} failed (search engine returned HTTP ${status}).`);
+    }
 }
 
 export class ElasticsearchService {
-    private config: AppConfig['elasticsearch'];
-
-    constructor(config?: AppConfig['elasticsearch']) {
-        this.config = config || appConfig.elasticsearch;
-        this.config.url = normalizeBaseUrl(this.config.url);
-    }
-
-    public updateConfig(config: AppConfig['elasticsearch']) {
-        if (!config) return;
-        const url = config.url ? normalizeBaseUrl(config.url) : this.config.url;
-        this.config = { ...config, url };
-        console.info(`[ElasticsearchService] Config updated: ${this.config.url} / ${this.config.indexName}`);
-    }
+    constructor(private readonly target: EsTarget) {}
 
     async search(query: string, filters: SearchFilters, from: number = 0, size: number = 20): Promise<SearchResult> {
-        // Safe check
-        if (!this.config.url) throw new Error("Elasticsearch URL is not configured");
-
         const startTime = performance.now();
         const must: any[] = [];
 
@@ -87,89 +79,67 @@ export class ElasticsearchService {
                 fields: {
                     content: { fragment_size: 150, number_of_fragments: 1 }
                 },
-                pre_tags: ['<mark class="bg-yellow-200 text-black rounded px-0.5">'],
-                post_tags: ['</mark>']
+                // Marker characters instead of HTML tags: fragments are rendered as text.
+                pre_tags: [HIGHLIGHT_PRE],
+                post_tags: [HIGHLIGHT_POST]
             },
             _source: {
                 excludes: ['content'] // Don't return full content to save bandwidth
             }
         };
 
-        try {
-            const response = await axios.post(`${this.config.url}/${this.config.indexName}/_search`, body);
-            const endTime = performance.now();
-            const hits = response.data.hits;
-            const totalTimeMs = endTime - startTime;
+        const response = await esRequest(this.target, 'POST', `/${this.target.indexName}/_search`, body);
+        assertOk(response.status, this.target, 'Search');
 
-            const metrics: SearchMetrics = {
-                params: { query, filters },
-                execution: {
-                    totalTimeMs,
-                    elasticTookMs: response.data.took,
-                    timestamp: new Date().toISOString()
-                }
-            };
+        const totalTimeMs = performance.now() - startTime;
+        const hits = response.data.hits;
 
-            return {
-                totalHits: hits.total.value,
-                took: response.data.took,
-                metrics,
-                hits: hits.hits.map((hit: any) => ({
-                    score: hit._score,
-                    document: hit._source,
-                    highlight: hit.highlight
-                }))
-            };
-        } catch (error) {
-            // Check if error is due to network/config
-            if (axios.isAxiosError(error) && !error.response) {
-                console.error('[ElasticsearchService] Network Error or Invalid URL:', this.config.url);
+        const metrics: SearchMetrics = {
+            params: { query, filters },
+            execution: {
+                totalTimeMs,
+                elasticTookMs: response.data.took,
+                timestamp: new Date().toISOString()
             }
-            console.error('Search failed:', error);
-            throw error;
-        }
+        };
+
+        return {
+            totalHits: hits.total.value,
+            took: response.data.took,
+            metrics,
+            hits: hits.hits.map((hit: any) => ({
+                score: hit._score,
+                document: hit._source,
+                highlight: hit.highlight
+            }))
+        };
     }
 
-    async getStats(): Promise<any> {
-        if (!this.config.url) return { totalDocs: 0, sizeInBytes: 0, fileTypes: {} };
-
-        try {
-            // Parallel requests for basic stats and aggregations
-            const [statsResponse, searchResponse] = await Promise.all([
-                axios.get(`${this.config.url}/${this.config.indexName}/_stats`),
-                axios.post(`${this.config.url}/${this.config.indexName}/_search`, {
-                    size: 0,
-                    aggs: {
-                        extensions: {
-                            terms: { field: "extension", size: 10 }
-                        }
+    async getStats(): Promise<IndexStats> {
+        const index = this.target.indexName;
+        const [statsResponse, aggsResponse] = await Promise.all([
+            esRequest(this.target, 'GET', `/${index}/_stats`),
+            esRequest(this.target, 'POST', `/${index}/_search`, {
+                size: 0,
+                aggs: {
+                    extensions: {
+                        terms: { field: 'extension', size: 10 }
                     }
-                })
-            ]);
+                }
+            })
+        ]);
+        assertOk(statsResponse.status, this.target, 'Loading index statistics');
+        assertOk(aggsResponse.status, this.target, 'Loading index statistics');
 
-            const totalDocs = statsResponse.data._all.primaries.docs.count;
-            const sizeInBytes = statsResponse.data._all.primaries.store.size_in_bytes;
+        const fileTypes: Record<string, number> = {};
+        aggsResponse.data.aggregations.extensions.buckets.forEach((bucket: any) => {
+            fileTypes[bucket.key] = bucket.doc_count;
+        });
 
-            const fileTypes: Record<string, number> = {};
-            searchResponse.data.aggregations.extensions.buckets.forEach((bucket: any) => {
-                fileTypes[bucket.key] = bucket.doc_count;
-            });
-
-            return {
-                documentCount: totalDocs, /* mapped to match Dashboard prop expectation */
-                sizeInBytes,
-                fileTypes
-            };
-        } catch (error) {
-            console.error('Stats failed:', error);
-            // Don't throw for stats, return empty safe object to prevent dashboard crash
-            return {
-                documentCount: 0,
-                sizeInBytes: 0,
-                fileTypes: {}
-            };
-        }
+        return {
+            documentCount: statsResponse.data._all.primaries.docs.count,
+            sizeInBytes: statsResponse.data._all.primaries.store.size_in_bytes,
+            fileTypes
+        };
     }
 }
-
-export const elasticsearchService = new ElasticsearchService();

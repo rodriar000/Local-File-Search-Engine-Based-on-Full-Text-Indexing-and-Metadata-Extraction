@@ -1,36 +1,72 @@
-import { defineConfig } from 'vite'
+/// <reference types="vitest/config" />
+import { defineConfig, loadEnv, Plugin } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 
+/**
+ * Content-Security-Policy for the packaged app. The renderer loads only its own
+ * bundle and talks to the search engine through IPC, so it needs no network access.
+ * Applied at build time only: the dev server relies on inline scripts for HMR.
+ */
+const CONTENT_SECURITY_POLICY = [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+].join('; ')
+
+function contentSecurityPolicy(): Plugin {
+    return {
+        name: 'inject-content-security-policy',
+        apply: 'build',
+        transformIndexHtml: () => [{
+            tag: 'meta',
+            attrs: { 'http-equiv': 'Content-Security-Policy', content: CONTENT_SECURITY_POLICY },
+            injectTo: 'head-prepend',
+        }],
+    }
+}
+
 // https://vitejs.dev/config/
-export default defineConfig({
-    plugins: [
-        react(),
-        electron({
-            main: {
-                // Shortcut of `build.lib.entry`.
-                entry: 'electron/main.ts',
-            },
-            preload: {
-                // Shortcut of `build.rollupOptions.input`.
-                // Preload scripts may contain Web assets, so use the `build.rollupOptions.input` instead `build.lib.entry`.
-                input: path.join(__dirname, 'electron/preload.ts'),
-            },
-            // Ployfill the Electron and Node.js API for Renderer process.
-            // If you want use Node.js in Renderer process, the `nodeIntegration` needs to be enabled in the Main process.
-            // See 👉 https://github.com/electron-vite/vite-plugin-electron-renderer
-            renderer: {},
-        }),
-    ],
-    server: {
-        proxy: {
-            '/api': {
-                target: 'http://localhost:9200',
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/api/, ''),
-                secure: false,
+export default defineConfig(({ mode }) => {
+    const env = loadEnv(mode, process.cwd(), 'VITE_')
+    return {
+        plugins: [
+            react(),
+            contentSecurityPolicy(),
+            // Unit tests run in plain Node; the Electron plugin would shim Node built-ins.
+            !process.env.VITEST && electron({
+                main: {
+                    // Shortcut of `build.lib.entry`.
+                    entry: 'electron/main.ts',
+                },
+                preload: {
+                    // Shortcut of `build.rollupOptions.input`.
+                    input: path.join(__dirname, 'electron/preload.ts'),
+                },
+                renderer: {},
+            }),
+        ],
+        server: {
+            // Browser preview during development only; the desktop app uses IPC.
+            proxy: {
+                '/api': {
+                    target: env.VITE_DEV_ELASTIC_URL || 'http://localhost:9200',
+                    changeOrigin: true,
+                    rewrite: (p) => p.replace(/^\/api/, ''),
+                    secure: false,
+                }
             }
-        }
-    },
+        },
+        test: {
+            environment: 'node',
+            include: ['src/**/*.test.ts', 'electron/**/*.test.ts'],
+        },
+    }
 })

@@ -6,47 +6,60 @@ on:
   pull_request:
     branches: [ main, dev ]
 
+permissions:
+  contents: read
+
 jobs:
-  backend-build:
+  backend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: tfg-filesearch
 
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Set up JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
-        
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml -DskipTests
 
-  frontend-build:
+    # Unit tests run here; the Elasticsearch integration test needs -DrunIT=true and a live cluster.
+    - name: Build and test
+      run: mvn -B verify --file pom.xml
+
+  frontend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: tfg-filesearch-gui
+    env:
+      # Packaging is not part of CI yet, so skip the Electron binary download.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
         cache: 'npm'
         cache-dependency-path: tfg-filesearch-gui/package-lock.json
 
     - name: Install dependencies
       run: npm ci
 
-    - name: Check Types (TSC)
-      run: npm run typecheck || npm exec tsc --noEmit
+    - name: Typecheck
+      run: npm run typecheck
+
+    - name: Unit tests
+      run: npm test
 
     - name: Build
-      run: npm run build
+      run: npm run build:web
+
+    - name: Audit production dependencies
+      run: npm audit --omit=dev --audit-level=high

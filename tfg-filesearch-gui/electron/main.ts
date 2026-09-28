@@ -1,35 +1,91 @@
-import { app, BrowserWindow, shell, ipcMain, clipboard } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, clipboard, dialog, IpcMainInvokeEvent } from 'electron'
+import { spawn, ChildProcess } from 'node:child_process'
+import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
+import {
+    EsRequest,
+    EsTarget,
+    isAllowedEsRequest,
+    isOpenableDocumentPath,
+    isValidEsTarget,
+    isValidIndexFolder,
+} from './security'
+import { normalizeIndexingStats, normalizeSearchStats } from './analytics'
 
 // --- GPU Management Strategy ---
 // Fix for "Black Screen" / EGL Driver errors on macOS Intel
 if (process.env.ELECTRON_DISABLE_GPU === '1') {
-    console.log('[Main-Process] ⚠️ Hardware acceleration disabled via ELECTRON_DISABLE_GPU=1');
+    console.log('[Main-Process] Hardware acceleration disabled via ELECTRON_DISABLE_GPU=1');
     app.disableHardwareAcceleration();
 }
 
 // Optional: Force software rendering if needed
 if (process.env.ELECTRON_FORCE_SWIFTSHADER === '1') {
-    console.log('[Main-Process] ⚠️ Forcing SwiftShader (Software Rendering)');
+    console.log('[Main-Process] Forcing SwiftShader (Software Rendering)');
     app.commandLine.appendSwitch('use-gl', 'swiftshader');
 }
-
-// Log generic GPU info
-app.commandLine.appendSwitch('enable-logging');
-app.commandLine.appendSwitch('v', '1');
 
 process.env.DIST = path.join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(__dirname, '../public')
 
+const ES_TIMEOUT_MS = 10_000
+const MAX_CLIPBOARD_CHARS = 100_000
+const MAX_EXPORT_BYTES = 50 * 1024 * 1024
+const MAX_REINDEX_OUTPUT_CHARS = 64 * 1024
+
 let win: BrowserWindow | null
+let reindexProcess: ChildProcess | null = null
+/** Set synchronously so two quick clicks cannot both start an indexer. */
+let reindexInFlight = false
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
+
+/** IPC is only accepted from the app's own page, never from a navigated or embedded frame. */
+function isTrustedSender(event: IpcMainInvokeEvent): boolean {
+    const url = event.senderFrame?.url ?? ''
+    if (VITE_DEV_SERVER_URL && url.startsWith(VITE_DEV_SERVER_URL)) return true
+    return url.startsWith('file://')
+}
+
+function handle<Args extends unknown[], Result>(
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, ...args: Args) => Promise<Result> | Result,
+) {
+    ipcMain.handle(channel, (event, ...args) => {
+        if (!isTrustedSender(event)) {
+            throw new Error(`Rejected IPC call to "${channel}" from an untrusted frame`)
+        }
+        return listener(event, ...(args as Args))
+    })
+}
+
+async function isExistingFile(filePath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(filePath)).isFile()
+    } catch {
+        return false
+    }
+}
+
+async function isExistingDirectory(dirPath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(dirPath)).isDirectory()
+    } catch {
+        return false
+    }
+}
+
+function resolveIndexerJar(): string {
+    if (process.env.FILESEARCH_JAR) return process.env.FILESEARCH_JAR
+    return app.isPackaged
+        ? path.join(process.resourcesPath, 'filesearch.jar')
+        : path.join(__dirname, '../../tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar')
+}
 
 function createWindow() {
     const publicDir = process.env.VITE_PUBLIC || '';
     const distDir = process.env.DIST || '';
-
-    console.log('[Main-Process] Creating BrowserWindow...');
 
     win = new BrowserWindow({
         width: 1000,
@@ -38,12 +94,13 @@ function createWindow() {
         minHeight: 600,
         title: 'File Search',
         icon: path.join(publicDir, 'electron-vite.svg'),
-        show: false, // Critical: Hide until ready to prevent black flash
+        show: false, // Hide until ready to prevent black flash
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
-            webSecurity: false // Disable CORS for local Elasticsearch connection
+            sandbox: true,
+            webSecurity: true,
         },
         titleBarStyle: 'hidden',
         titleBarOverlay: {
@@ -54,48 +111,170 @@ function createWindow() {
         // Add vibrancy for macOS glass effect
         vibrancy: 'under-window',
         visualEffectState: 'active',
-        backgroundColor: '#ffffff', // Set exact background to avoid black default, usage dependent on theme
+        backgroundColor: '#ffffff',
         frame: false // Frameless for custom UI
     })
 
-    // --- Lifecycle Logging & Debugging ---
-
     win.once('ready-to-show', () => {
-        console.log('[Main-Process] Window ready to show');
         win?.show();
     });
 
-    win.webContents.on('did-start-loading', () => {
-        console.log('[Main-Process] WebContents started loading...');
-    });
-
-    win.webContents.on('did-finish-load', () => {
-        console.log('[Main-Process] WebContents finished loading successfully');
-        win?.webContents.send('main-process-message', (new Date).toLocaleString());
-    });
-
-    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-        console.error(`[Main-Process] ❌ Failed to load: ${validatedURL}`);
-        console.error(`[Main-Process] Error: ${errorCode} - ${errorDescription}`);
+    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+        console.error(`[Main-Process] Failed to load renderer: ${errorCode} - ${errorDescription}`);
     });
 
     win.webContents.on('render-process-gone', (_event, details) => {
-        console.error(`[Main-Process] ❌ Renderer process gone. Reason: ${details.reason}, Exit Code: ${details.exitCode}`);
+        console.error(`[Main-Process] Renderer process gone. Reason: ${details.reason}, Exit Code: ${details.exitCode}`);
     });
 
-    win.webContents.on('unresponsive', () => {
-        console.warn('[Main-Process] ⚠️ Renderer process unresponsive');
+    // The renderer never opens windows or leaves the app page.
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (event, url) => {
+        const isAppPage = VITE_DEV_SERVER_URL ? url.startsWith(VITE_DEV_SERVER_URL) : url.startsWith('file://');
+        if (!isAppPage) event.preventDefault();
     });
 
     if (VITE_DEV_SERVER_URL) {
-        console.log(`[Main-Process] Loading Dev Server: ${VITE_DEV_SERVER_URL}`);
         win.loadURL(VITE_DEV_SERVER_URL);
-        // Open DevTools automatically if we are in dev mode and having issues
-        // win.webContents.openDevTools(); 
     } else {
-        console.log(`[Main-Process] Loading Production File: ${path.join(distDir, 'index.html')}`);
         win.loadFile(path.join(distDir, 'index.html'));
     }
+}
+
+async function forwardEsRequest(target: EsTarget, request: EsRequest) {
+    const base = target.url.replace(/\/$/, '')
+    try {
+        const response = await fetch(base + request.path, {
+            method: request.method,
+            headers: request.body ? { 'Content-Type': 'application/json' } : undefined,
+            body: request.body ? JSON.stringify(request.body) : undefined,
+            signal: AbortSignal.timeout(ES_TIMEOUT_MS),
+        })
+        const isJson = response.headers.get('content-type')?.includes('application/json')
+        const data = request.method !== 'HEAD' && isJson ? await response.json() : null
+        return { status: response.status, data }
+    } catch (error) {
+        const reason = error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'unreachable'
+        return { status: 0, data: null, error: reason }
+    }
+}
+
+function registerIpcHandlers() {
+    handle('open-path', async (_event, filePath: unknown) => {
+        if (!isOpenableDocumentPath(filePath) || !(await isExistingFile(filePath))) {
+            return 'This file cannot be opened: it no longer exists or is not a supported document type.'
+        }
+        return shell.openPath(filePath)
+    })
+
+    handle('show-in-folder', async (_event, filePath: unknown) => {
+        if (isOpenableDocumentPath(filePath) && (await isExistingFile(filePath))) {
+            shell.showItemInFolder(filePath)
+        }
+    })
+
+    handle('copy-to-clipboard', (_event, text: unknown) => {
+        if (typeof text === 'string' && text.length <= MAX_CLIPBOARD_CHARS) {
+            clipboard.writeText(text)
+        }
+    })
+
+    handle('export:save', async (_event, payload: unknown) => {
+        const { type, data, defaultPath } = (payload ?? {}) as Record<string, unknown>
+        if ((type !== 'json' && type !== 'csv') || typeof data !== 'string' || data.length > MAX_EXPORT_BYTES) {
+            throw new Error('Invalid export request')
+        }
+        const suggested = typeof defaultPath === 'string' ? path.basename(defaultPath) : `export.${type}`
+        const { filePath } = await dialog.showSaveDialog(win!, {
+            defaultPath: suggested,
+            filters: [{ name: type.toUpperCase(), extensions: [type] }]
+        });
+        if (!filePath) return null
+        await fs.writeFile(filePath, data, 'utf-8');
+        return filePath;
+    });
+
+    handle('select-folder', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
+            properties: ['openDirectory'],
+        })
+        return canceled || filePaths.length === 0 ? null : filePaths[0]
+    })
+
+    handle('reindex', async (_event, folder: unknown) => {
+        if (reindexInFlight) {
+            throw new Error('Indexing is already running.')
+        }
+        reindexInFlight = true
+        try {
+            return await runIndexer(folder)
+        } finally {
+            reindexInFlight = false
+        }
+    })
+
+    async function runIndexer(folder: unknown): Promise<string> {
+        if (!isValidIndexFolder(folder) || !(await isExistingDirectory(folder))) {
+            throw new Error('Choose an existing folder to index.')
+        }
+        const jarPath = resolveIndexerJar()
+        if (!(await isExistingFile(jarPath))) {
+            throw new Error(`Indexer not found at ${jarPath}. Build the backend with "mvn package" first.`)
+        }
+
+        return new Promise<string>((resolve, reject) => {
+            const child = spawn('java', ['-jar', jarPath, 'update-index', '--', folder], { windowsHide: true })
+            reindexProcess = child
+
+            let output = ''
+            const append = (chunk: Buffer) => {
+                output = (output + chunk.toString()).slice(-MAX_REINDEX_OUTPUT_CHARS)
+            }
+            child.stdout?.on('data', append)
+            child.stderr?.on('data', append)
+
+            child.on('error', (error: NodeJS.ErrnoException) => {
+                reindexProcess = null
+                reject(new Error(error.code === 'ENOENT'
+                    ? 'Java was not found. Install Java 17 or later to run the indexer.'
+                    : `Could not start the indexer: ${error.message}`))
+            })
+
+            child.on('close', (code) => {
+                reindexProcess = null
+                if (code === 0) {
+                    resolve(output)
+                } else {
+                    reject(new Error(`Indexing failed (exit code ${code}).\n${output}`))
+                }
+            })
+        })
+    }
+
+    handle('get-analytics', async () => {
+        const statsDir = path.join(os.homedir(), '.filesearch')
+        const readJson = async (file: string) => {
+            try {
+                return JSON.parse(await fs.readFile(path.join(statsDir, file), 'utf-8'))
+            } catch {
+                return null
+            }
+        }
+        return {
+            search: normalizeSearchStats(await readJson('search_stats.json')),
+            indexing: normalizeIndexingStats(await readJson('indexing_stats.json')),
+        }
+    })
+
+    handle('es:request', async (_event, target: unknown, request: unknown) => {
+        if (!isValidEsTarget(target)) {
+            throw new Error('The search engine address must be on this computer (localhost).')
+        }
+        if (!isAllowedEsRequest(request, target.indexName)) {
+            throw new Error('Search engine request not allowed')
+        }
+        return forwardEsRequest(target, request)
+    })
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -115,94 +294,11 @@ app.on('activate', () => {
     }
 })
 
+app.on('before-quit', () => {
+    reindexProcess?.kill()
+})
+
 app.whenReady().then(() => {
-    console.log('[Main-Process] App Ready');
+    registerIpcHandlers()
     createWindow()
-
-    // IPC Handlers
-    ipcMain.handle('open-path', async (_, filePath: string) => {
-        const error = await shell.openPath(filePath)
-        return error
-    })
-
-    ipcMain.handle('show-in-folder', async (_, filePath: string) => {
-        shell.showItemInFolder(filePath)
-    })
-
-    ipcMain.handle('copy-to-clipboard', async (_, text: string) => {
-        clipboard.writeText(text)
-    })
-
-    // Export Handler
-    ipcMain.handle('export:save', async (_, { type, data, defaultPath }: { type: 'json' | 'csv', data: string, defaultPath: string }) => {
-        const { dialog } = require('electron');
-        const fs = require('fs/promises');
-
-        const { filePath } = await dialog.showSaveDialog(win, {
-            defaultPath: defaultPath || `export.${type}`,
-            filters: [
-                { name: type.toUpperCase(), extensions: [type] }
-            ]
-        });
-
-        if (filePath) {
-            await fs.writeFile(filePath, data, 'utf-8');
-            return filePath;
-        }
-        return null;
-    });
-
-    // Reindex Handler
-    ipcMain.handle('reindex', async (_, pathToIndex: string) => {
-        const { spawn } = require('child_process');
-        const jarPath = path.join(__dirname, '../../tfg-filesearch/target/filesearch-1.0.0-jar-with-dependencies.jar');
-
-        return new Promise((resolve, reject) => {
-            const child = spawn('java', ['-jar', jarPath, 'update-index', pathToIndex]);
-
-            let output = '';
-            let error = '';
-
-            child.stdout.on('data', (data: any) => {
-                output += data.toString();
-            });
-
-            child.stderr.on('data', (data: any) => {
-                error += data.toString();
-            });
-
-            child.on('close', (code: number) => {
-                if (code === 0) {
-                    resolve(output);
-                } else {
-                    reject(new Error(`Reindex failed with code ${code}: ${error}`));
-                }
-            });
-        });
-    });
-
-    ipcMain.handle('get-analytics', async () => {
-        const homeDir = require('os').homedir();
-        const fs = require('fs/promises');
-        const path = require('path');
-
-        const statsDir = path.join(homeDir, '.filesearch');
-
-        const result = {
-            search: null,
-            indexing: null
-        };
-
-        try {
-            const searchData = await fs.readFile(path.join(statsDir, 'search_stats.json'), 'utf-8');
-            result.search = JSON.parse(searchData);
-        } catch (e) { /* ignore */ }
-
-        try {
-            const indexData = await fs.readFile(path.join(statsDir, 'indexing_stats.json'), 'utf-8');
-            result.indexing = JSON.parse(indexData);
-        } catch (e) { /* ignore */ }
-
-        return result;
-    });
 })

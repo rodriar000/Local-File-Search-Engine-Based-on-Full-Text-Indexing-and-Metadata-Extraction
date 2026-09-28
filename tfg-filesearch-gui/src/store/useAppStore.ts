@@ -7,6 +7,9 @@ interface AppState {
     toggleSidebar: () => void;
     config: AppConfig;
     setConfig: (config: AppConfig) => void;
+    /** Folder last chosen for indexing; null until the user picks one. */
+    indexFolder: string | null;
+    setIndexFolder: (folder: string | null) => void;
     darkMode: boolean;
     toggleDarkMode: () => void;
 }
@@ -23,6 +26,8 @@ export const useAppStore = create<AppState>()(
                 }
             },
             setConfig: (config) => set({ config }),
+            indexFolder: null,
+            setIndexFolder: (indexFolder) => set({ indexFolder }),
             darkMode: false,
             toggleDarkMode: () => set((state) => {
                 const newMode = !state.darkMode;
