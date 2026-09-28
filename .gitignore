@@ -56,3 +56,16 @@ test-output/
 # Build output
 build/
 dist/
+
+# Node / Electron
+node_modules/
+dist-electron/
+release/
+
+# Local environment (never commit)
+.env
+.env.*
+!.env.example
+
+# Benchmark outputs
+reports/
