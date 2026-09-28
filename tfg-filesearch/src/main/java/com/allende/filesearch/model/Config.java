@@ -16,6 +16,7 @@ public class Config {
     private SearchConfig search = new SearchConfig();
     private WatchConfig watch = new WatchConfig();
     private LoggingConfig logging = new LoggingConfig();
+    private OcrConfig ocr = new OcrConfig();
 
     public Config() {
     }
@@ -58,6 +59,58 @@ public class Config {
 
     public void setLogging(LoggingConfig logging) {
         this.logging = logging;
+    }
+
+    public OcrConfig getOcr() {
+        return ocr;
+    }
+
+    public void setOcr(OcrConfig ocr) {
+        this.ocr = ocr;
+    }
+
+    /** Text recognition for scanned documents, done by a local Tesseract installation. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class OcrConfig {
+        private boolean enabled = true;
+        /** Tesseract language codes joined with "+", e.g. "spa" or "spa+eng". */
+        private String language = "spa";
+        /** Folder containing the tesseract executable; empty = look it up on the PATH. */
+        private String tesseractPath;
+        /** Longest time spent recognising one file. */
+        private int timeoutSeconds = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getLanguage() {
+            return language;
+        }
+
+        public void setLanguage(String language) {
+            this.language = language;
+        }
+
+        public String getTesseractPath() {
+            return tesseractPath;
+        }
+
+        public void setTesseractPath(String tesseractPath) {
+            this.tesseractPath = tesseractPath;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

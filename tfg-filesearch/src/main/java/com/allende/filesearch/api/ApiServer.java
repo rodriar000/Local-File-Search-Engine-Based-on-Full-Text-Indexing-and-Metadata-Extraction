@@ -2,6 +2,7 @@ package com.allende.filesearch.api;
 
 import com.allende.filesearch.analytics.AnalyticsManager;
 import com.allende.filesearch.index.DocumentIndex;
+import com.allende.filesearch.index.DocumentPreview;
 import com.allende.filesearch.index.IndexSynchronizer;
 import com.allende.filesearch.index.SearchRequest;
 import com.allende.filesearch.model.Document;
@@ -122,6 +123,7 @@ public final class ApiServer implements AutoCloseable {
             case "GET /api/health" -> send(exchange, 200, Map.of("status", "ok"));
             case "GET /api/stats" -> send(exchange, 200, index.summary());
             case "POST /api/search" -> send(exchange, 200, search(readJson(exchange, SearchBody.class)));
+            case "POST /api/preview" -> preview(exchange, readJson(exchange, PreviewBody.class));
             case "POST /api/index" -> startIndexing(exchange, readJson(exchange, IndexBody.class));
             case "GET /api/index/status" -> send(exchange, 200, indexing.status());
             case "POST /api/index/cancel" -> {
@@ -141,6 +143,34 @@ public final class ApiServer implements AutoCloseable {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record IndexBody(String folder) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PreviewBody(String path, String query) {
+    }
+
+    record PreviewResponse(String path, String filename, String extension, long size, Instant modifiedAt,
+            String title, String author, String text, boolean truncated) {
+    }
+
+    /** Text of an indexed document; paths that are not in the index are refused, so no other file can be read. */
+    private void preview(HttpExchange exchange, PreviewBody body) throws IOException {
+        if (body == null || body.path() == null || body.path().isBlank()) {
+            throw new BadRequest("path is required");
+        }
+        DocumentPreview preview;
+        try {
+            preview = index.preview(body.path(), body.query());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequest("invalid search");
+        }
+        if (preview == null) {
+            send(exchange, 404, error("not in the index"));
+            return;
+        }
+        Document doc = preview.document();
+        send(exchange, 200, new PreviewResponse(doc.getPath(), doc.getFilename(), doc.getExtension(), doc.getSize(),
+                doc.getModifiedAt(), doc.getTitle(), doc.getAuthor(), preview.text(), preview.truncated()));
     }
 
     /** One result as the app shows it; never the full document text. */

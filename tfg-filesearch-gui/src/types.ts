@@ -41,6 +41,20 @@ export interface SearchFilters {
     dateTo?: string;
 }
 
+/** A document's text for the preview, with matches between highlight markers. */
+export interface DocumentPreviewData {
+    path: string;
+    filename: string;
+    extension: string;
+    size: number;
+    modifiedAt?: string;
+    title?: string;
+    author?: string;
+    text: string;
+    /** Only the beginning of a very long document is shown. */
+    truncated: boolean;
+}
+
 export interface SyncReport {
     root: string;
     scanned: number;

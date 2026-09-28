@@ -34,11 +34,13 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermInSetQuery;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.uhighlight.DefaultPassageFormatter;
 import org.apache.lucene.search.uhighlight.LengthGoalBreakIterator;
 import org.apache.lucene.search.uhighlight.UnifiedHighlighter;
+import org.apache.lucene.search.uhighlight.WholeBreakIterator;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.lucene.util.Bits;
@@ -77,6 +79,8 @@ public final class DocumentIndex implements Closeable {
     public static final int MAX_PAGE_SIZE = 100;
     public static final int MAX_FROM = 10_000;
     private static final int SNIPPET_LENGTH = 160;
+    /** Characters of a document shown in the preview. */
+    public static final int PREVIEW_MAX_CHARS = 300_000;
     private static final Locale SPANISH = Locale.forLanguageTag("es");
 
     private static final Map<String, Float> QUERY_FIELD_WEIGHTS = Map.of(
@@ -185,6 +189,9 @@ public final class DocumentIndex implements Closeable {
                 StoredFields stored = reader.storedFields();
                 NumericDocValues sizes = DocValues.getNumeric(reader, IndexFields.SIZE);
                 NumericDocValues modified = DocValues.getNumeric(reader, IndexFields.MODIFIED_AT);
+                NumericDocValues versions = DocValues.getNumeric(reader, IndexFields.EXTRACTOR_VERSION);
+                NumericDocValues hasText = DocValues.getNumeric(reader, IndexFields.HAS_TEXT);
+                NumericDocValues ocr = DocValues.getNumeric(reader, IndexFields.OCR_AVAILABLE);
                 for (int doc = 0; doc < reader.maxDoc(); doc++) {
                     if (live != null && !live.get(doc)) {
                         continue;
@@ -195,7 +202,11 @@ public final class DocumentIndex implements Closeable {
                     }
                     long size = sizes.advanceExact(doc) ? sizes.longValue() : -1;
                     long mtime = modified.advanceExact(doc) ? modified.longValue() : -1;
-                    states.put(path, new FileState(size, mtime));
+                    // Entries written before these values existed read as version 0, so they are re-extracted.
+                    int version = versions.advanceExact(doc) ? (int) versions.longValue() : 0;
+                    boolean text = hasText.advanceExact(doc) && hasText.longValue() == 1;
+                    boolean ocrUsed = ocr.advanceExact(doc) && ocr.longValue() == 1;
+                    states.put(path, new FileState(size, mtime, version, text, ocrUsed));
                 }
             }
         } finally {
@@ -249,6 +260,44 @@ public final class DocumentIndex implements Closeable {
             result.setTotalTimeMs(tookMs);
             result.setResultsPerSecond(tookMs > 0 ? hits.size() / (tookMs / 1000.0) : hits.size());
             return result;
+        } finally {
+            searcherManager.release(searcher);
+        }
+    }
+
+    /**
+     * The text of one indexed document for the preview, with every match of
+     * {@code query} marked. Only indexed documents can be previewed.
+     *
+     * @return null when the path is not in the index
+     */
+    public DocumentPreview preview(String path, String query) throws IOException {
+        refreshReadOnlyView();
+        if (searcherManager == null || path == null) {
+            return null;
+        }
+        IndexSearcher searcher = searcherManager.acquire();
+        try {
+            TopDocs found = searcher.search(new TermQuery(new Term(IndexFields.PATH, path)), 1);
+            if (found.scoreDocs.length == 0) {
+                return null;
+            }
+            ScoreDoc hit = found.scoreDocs[0];
+            org.apache.lucene.document.Document stored = searcher.storedFields().document(hit.doc);
+            Document doc = fromLucene(stored);
+            String content = nullToEmpty(stored.get(IndexFields.CONTENT));
+            boolean truncated = content.length() > PREVIEW_MAX_CHARS;
+
+            String text = null;
+            if (query != null && !query.isBlank()) {
+                Query parsed = buildQuery(SearchRequest.of(query, 1));
+                TopDocs single = new TopDocs(new TotalHits(1, TotalHits.Relation.EQUAL_TO), new ScoreDoc[] { hit });
+                text = previewHighlighter(searcher).highlight(IndexFields.CONTENT, parsed, single, 1)[0];
+            }
+            if (text == null || text.isEmpty()) {
+                text = truncated ? content.substring(0, PREVIEW_MAX_CHARS) : content;
+            }
+            return new DocumentPreview(doc, text, truncated);
         } finally {
             searcherManager.release(searcher);
         }
@@ -323,6 +372,16 @@ public final class DocumentIndex implements Closeable {
                         BreakIterator.getSentenceInstance(SPANISH), SNIPPET_LENGTH, 0.5f))
                 // Highlight matches anywhere in the document, not only in its first 10,000 characters.
                 .withMaxLength(Integer.MAX_VALUE - 1)
+                .build();
+    }
+
+    /** Marks every match in the first PREVIEW_MAX_CHARS characters as one passage. */
+    private UnifiedHighlighter previewHighlighter(IndexSearcher searcher) {
+        return UnifiedHighlighter.builder(searcher, analyzer)
+                .withFormatter(new DefaultPassageFormatter(HIGHLIGHT_PRE, HIGHLIGHT_POST, "", false))
+                .withBreakIterator(WholeBreakIterator::new)
+                .withMaxLength(PREVIEW_MAX_CHARS)
+                .withHighlightPhrasesStrictly(true)
                 .build();
     }
 
@@ -408,6 +467,10 @@ public final class DocumentIndex implements Closeable {
             out.add(new TextField(IndexFields.AUTHOR, doc.getAuthor(), Field.Store.YES));
         }
         out.add(new Field(IndexFields.CONTENT, nullToEmpty(doc.getContent()), CONTENT_TYPE));
+        boolean hasText = doc.getContent() != null && !doc.getContent().isBlank();
+        out.add(new NumericDocValuesField(IndexFields.HAS_TEXT, hasText ? 1 : 0));
+        out.add(new NumericDocValuesField(IndexFields.OCR_AVAILABLE, doc.isOcrAvailable() ? 1 : 0));
+        out.add(new NumericDocValuesField(IndexFields.EXTRACTOR_VERSION, doc.getExtractorVersion()));
         return out;
     }
 
