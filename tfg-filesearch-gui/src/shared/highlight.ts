@@ -41,3 +41,46 @@ export function splitHighlight(fragment: string): HighlightSegment[] {
 export function stripHighlight(fragment: string): string {
     return fragment.split(HIGHLIGHT_PRE).join('').split(HIGHLIGHT_POST).join('');
 }
+
+export interface PreviewSegment extends HighlightSegment {
+    /** Kind of personal data in this segment, if any (see shared/personalData.ts). */
+    personal?: string;
+}
+
+/**
+ * Split a preview text into segments that are search matches, personal data,
+ * both or neither. Span positions count UTF-16 units of `text`, markers included.
+ */
+export function splitPreview(text: string, spans: { start: number; end: number; type: string }[]): PreviewSegment[] {
+    const sorted = spans
+        .filter((span) => span.start >= 0 && span.end > span.start && span.end <= text.length)
+        .sort((a, b) => a.start - b.start);
+    const segments: PreviewSegment[] = [];
+    let match = false;
+    let personal: string | undefined;
+    let buffer = '';
+    let next = 0;
+
+    const flush = () => {
+        if (buffer) segments.push(personal ? { text: buffer, match, personal } : { text: buffer, match });
+        buffer = '';
+    };
+
+    for (let i = 0; i < text.length; i++) {
+        while (next < sorted.length && sorted[next].end <= i) next++;
+        const inside = next < sorted.length && sorted[next].start <= i ? sorted[next].type : undefined;
+        if (inside !== personal) {
+            flush();
+            personal = inside;
+        }
+        const char = text[i];
+        if (char === HIGHLIGHT_PRE || char === HIGHLIGHT_POST) {
+            flush();
+            match = char === HIGHLIGHT_PRE;
+            continue;
+        }
+        buffer += char;
+    }
+    flush();
+    return segments;
+}

@@ -167,6 +167,13 @@ public final class IndexSynchronizer {
             awaitQuietly(pool);
         }
 
+        if (!cancel.get()) {
+            int refreshed = index.refreshEntities(root, cancel::get);
+            if (refreshed > 0) {
+                logger.info("Updated the personal data found in {} documents already indexed", refreshed);
+            }
+        }
+
         int deleted = 0;
         if (!cancel.get()) {
             Set<String> present = new HashSet<>();

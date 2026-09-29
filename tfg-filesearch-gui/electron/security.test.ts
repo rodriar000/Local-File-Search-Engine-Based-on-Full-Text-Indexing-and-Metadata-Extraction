@@ -38,6 +38,18 @@ describe('isAllowedApiRequest', () => {
         expect(isAllowedApiRequest({ method: 'POST', path: '/api/preview', body: { path: '/a.pdf', query: 1 } })).toBe(false);
     });
 
+    it('allows data protection reports by name and/or identifier only', () => {
+        const report = (body: unknown) => isAllowedApiRequest({ method: 'POST', path: '/api/report', body });
+        expect(report({ name: 'Juan Pérez García' })).toBe(true);
+        expect(report({ identifier: '12345678Z' })).toBe(true);
+        expect(report({ name: 'Juan Pérez', identifier: '12345678Z' })).toBe(true);
+        expect(report({})).toBe(false);
+        expect(report({ name: 42 })).toBe(false);
+        expect(report({ name: 'x'.repeat(201) })).toBe(false);
+        expect(report({ identifier: 'x'.repeat(101) })).toBe(false);
+        expect(isAllowedApiRequest({ method: 'GET', path: '/api/report' })).toBe(false);
+    });
+
     it('rejects malformed input', () => {
         for (const request of [null, undefined, 'GET /api/stats', { method: 'GET' }, { path: '/api/stats' }]) {
             expect(isAllowedApiRequest(request)).toBe(false);

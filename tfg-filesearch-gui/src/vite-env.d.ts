@@ -13,6 +13,7 @@ interface ElectronAPI {
     showInFolder: (path: string) => Promise<void>;
     copyToClipboard: (text: string) => Promise<void>;
     saveExport: (payload: { type: string, data: string, defaultPath?: string }) => Promise<string | null>;
+    exportReport: (payload: { format: 'csv' | 'pdf', report: import('./shared/personalData').PersonalDataReport }) => Promise<string | null>;
     selectFolder: () => Promise<string | null>;
     getAnalytics: () => Promise<import('./types').SystemAnalytics>;
     getLicense: () => Promise<import('./types').LicenseState>;

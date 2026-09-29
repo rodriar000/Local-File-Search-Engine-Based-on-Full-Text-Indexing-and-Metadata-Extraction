@@ -168,6 +168,42 @@ class ApiServerTest {
     }
 
     @Test
+    void findsDocumentsByIdentifierAndListsThemForDataProtectionRequests() throws Exception {
+        Path demanda = docs.resolve("demanda.txt");
+        Files.writeString(demanda, "Juan Perez Garcia, DNI 12.345.678-Z, procedimiento ordinario 456/2024. Tel. 612 345 678");
+        Files.writeString(docs.resolve("nota.txt"), "Llamar a Juan Perez Garcia por el recurso.");
+        Files.writeString(docs.resolve("otro.txt"), "Cliente con NIE X1234567L");
+        post("/api/index", "{\"folder\":\"" + json(docs) + "\"}");
+        awaitIndexing();
+
+        JsonNode byDni = json.readTree(post("/api/search", "{\"query\":\"\",\"identifier\":\"12345678z\"}").body());
+        assertThat(byDni.path("totalHits").asLong()).isEqualTo(1);
+        assertThat(byDni.path("hits").get(0).path("dataTypes").toString()).isEqualTo("[\"dni\",\"telefono\",\"procedimiento\"]");
+        assertThat(json.readTree(post("/api/search", "{\"identifier\":\"456/2024\"}").body()).path("totalHits").asLong())
+                .isEqualTo(1);
+        assertThat(post("/api/search", "{\"identifier\":\"12345678A\"}").statusCode()).isEqualTo(400);
+        assertThat(post("/api/search", "{\"dataTypes\":[\"secreto\"]}").statusCode()).isEqualTo(400);
+
+        HttpResponse<String> response = post("/api/report", "{\"name\":\"  juan   perez garcia \",\"identifier\":\"12.345.678-Z\"}");
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode report = json.readTree(response.body());
+        assertThat(report.path("name").asText()).isEqualTo("juan perez garcia");
+        assertThat(report.path("identifier").asText()).isEqualTo("12345678Z");
+        assertThat(report.path("identifierType").asText()).isEqualTo("dni");
+        assertThat(report.path("total").asLong()).isEqualTo(2);
+        assertThat(report.path("documents").get(0).path("filename").asText()).isEqualTo("demanda.txt");
+        assertThat(report.path("documents").get(0).path("byIdentifier").asBoolean()).isTrue();
+        assertThat(report.path("documents").get(1).path("byIdentifier").asBoolean()).isFalse();
+
+        assertThat(post("/api/report", "{}").statusCode()).isEqualTo(400);
+        assertThat(post("/api/report", "{\"name\":\"ab\"}").statusCode()).isEqualTo(400);
+        assertThat(post("/api/report", "{\"identifier\":\"hola\"}").statusCode()).isEqualTo(400);
+
+        JsonNode preview = json.readTree(post("/api/preview", "{\"path\":\"" + json(demanda) + "\"}").body());
+        assertThat(preview.path("personalData").findValuesAsText("type")).containsExactly("dni", "telefono");
+    }
+
+    @Test
     void switchingFoldersRemovesTheOldOne() throws Exception {
         Files.writeString(docs.resolve("demanda.txt"), "Demanda de desahucio");
         Path other = Files.createDirectories(tempDir.resolve("otro"));

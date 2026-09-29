@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HIGHLIGHT_POST, HIGHLIGHT_PRE, splitHighlight, stripHighlight } from './highlight';
+import { HIGHLIGHT_POST, HIGHLIGHT_PRE, splitHighlight, splitPreview, stripHighlight } from './highlight';
 
 const mark = (text: string) => `${HIGHLIGHT_PRE}${text}${HIGHLIGHT_POST}`;
 
@@ -37,5 +37,38 @@ describe('splitHighlight', () => {
 describe('stripHighlight', () => {
     it('removes all markers', () => {
         expect(stripHighlight(`${mark('uno')} y ${mark('dos')}`)).toBe('uno y dos');
+    });
+});
+
+describe('splitPreview', () => {
+    it('marks personal data, also when it is a search match', () => {
+        const text = `DNI ${mark('12345678Z')}, tel. 612345678.`;
+        const dni = text.indexOf('12345678Z');
+        const phone = text.indexOf('612345678');
+        expect(splitPreview(text, [
+            { start: phone, end: phone + 9, type: 'telefono' },
+            { start: dni, end: dni + 9, type: 'dni' },
+        ])).toEqual([
+            { text: 'DNI ', match: false },
+            { text: '12345678Z', match: true, personal: 'dni' },
+            { text: ', tel. ', match: false },
+            { text: '612345678', match: false, personal: 'telefono' },
+            { text: '.', match: false },
+        ]);
+    });
+
+    it('splits a search match that covers only part of the personal data', () => {
+        const text = `ES91 ${mark('2100')} 0418`;
+        expect(splitPreview(text, [{ start: 0, end: text.length, type: 'iban' }])).toEqual([
+            { text: 'ES91 ', match: false, personal: 'iban' },
+            { text: '2100', match: true, personal: 'iban' },
+            { text: ' 0418', match: false, personal: 'iban' },
+        ]);
+    });
+
+    it('ignores positions outside the text and behaves like splitHighlight without spans', () => {
+        const text = `a ${mark('b')} c`;
+        expect(splitPreview(text, [{ start: 50, end: 60, type: 'dni' }, { start: 3, end: 3, type: 'dni' }]))
+            .toEqual(splitHighlight(text));
     });
 });

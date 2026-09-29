@@ -216,4 +216,111 @@ class DocumentIndexTest {
             assertThat(beyond.getHits()).isEmpty();
         }
     }
+
+    private DocumentIndex indexWithPersonalData() throws Exception {
+        DocumentIndex index = DocumentIndex.openForWriting(tempDir.resolve("index"));
+        index.upsert(doc("/exp/perez/demanda.pdf",
+                "Don Juan Pérez García, con DNI 12.345.678-Z, en el procedimiento ordinario 456/2024.",
+                "pdf", 1000, Instant.parse("2025-03-01T10:00:00Z")));
+        index.upsert(doc("/exp/perez/transferencia.pdf",
+                "Transferencia a la cuenta ES91 2100 0418 4502 0005 1332 de 12345678Z.",
+                "pdf", 1000, Instant.parse("2025-03-02T10:00:00Z")));
+        index.upsert(doc("/exp/lopez/informe.docx",
+                "Informe médico de Ana López: baja médica por incapacidad temporal. Juan Pérez García declara.",
+                "docx", 1000, Instant.parse("2025-03-03T10:00:00Z")));
+        index.commit();
+        return index;
+    }
+
+    private static SearchRequest withData(String entity, List<String> types) {
+        return new SearchRequest("", List.of(), null, null, null, null, entity, types, 0, 10);
+    }
+
+    @Test
+    void filtersByIdentifierHoweverItWasWritten() throws Exception {
+        try (DocumentIndex index = indexWithPersonalData()) {
+            assertThat(paths(index.search(withData("dni:12345678Z", List.of()))))
+                    .containsExactlyInAnyOrder("/exp/perez/demanda.pdf", "/exp/perez/transferencia.pdf");
+            assertThat(paths(index.search(withData("procedimiento:456/2024", List.of()))))
+                    .containsExactly("/exp/perez/demanda.pdf");
+            assertThat(paths(index.search(withData("iban:ES9121000418450200051332", List.of()))))
+                    .containsExactly("/exp/perez/transferencia.pdf");
+            assertThat(paths(index.search(withData(null, List.of("salud")))))
+                    .containsExactly("/exp/lopez/informe.docx");
+            assertThat(paths(index.search(withData(null, List.of("salud", "iban")))))
+                    .containsExactlyInAnyOrder("/exp/lopez/informe.docx", "/exp/perez/transferencia.pdf");
+        }
+    }
+
+    @Test
+    void resultsSayWhichKindsOfPersonalDataADocumentHolds() throws Exception {
+        try (DocumentIndex index = indexWithPersonalData()) {
+            SearchResult result = index.search(SearchRequest.of("transferencia", 10));
+            assertThat(result.getHits().get(0).getDocument().getDataTypes()).containsExactly("dni", "iban");
+        }
+    }
+
+    @Test
+    void reportListsEveryDocumentThatMentionsThePersonAndWhy() throws Exception {
+        try (DocumentIndex index = indexWithPersonalData()) {
+            DocumentIndex.Report report = index.report("juan perez garcia", "dni:12345678Z");
+            assertThat(report.total()).isEqualTo(3);
+            assertThat(report.truncated()).isFalse();
+            assertThat(report.entries()).extracting(e -> e.document().getPath())
+                    .containsExactly("/exp/lopez/informe.docx", "/exp/perez/demanda.pdf", "/exp/perez/transferencia.pdf");
+            assertThat(report.entries()).extracting(DocumentIndex.ReportEntry::byName)
+                    .containsExactly(true, true, false);
+            assertThat(report.entries()).extracting(DocumentIndex.ReportEntry::byIdentifier)
+                    .containsExactly(false, true, true);
+
+            assertThat(index.report("Ana Pérez", null).entries()).isEmpty();
+            assertThatThrownBy(() -> index.report(" ", null)).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void previewMarksPersonalDataEvenInsideSearchMatches() throws Exception {
+        try (DocumentIndex index = indexWithPersonalData()) {
+            DocumentPreview preview = index.preview("/exp/perez/transferencia.pdf", "12345678Z");
+            String text = preview.text();
+            assertThat(preview.personalData()).extracting(DocumentPreview.PersonalData::type)
+                    .containsExactly("iban", "dni");
+            DocumentPreview.PersonalData dni = preview.personalData().get(1);
+            assertThat(text.substring(dni.start() - 1, dni.end() + 1))
+                    .isEqualTo(DocumentIndex.HIGHLIGHT_PRE + "12345678Z" + DocumentIndex.HIGHLIGHT_POST);
+        }
+    }
+
+    @Test
+    void findsPersonalDataInEntriesIndexedBeforeItWasDetectedWithoutReadingTheFilesAgain() throws Exception {
+        Path location = tempDir.resolve("index");
+        Document old = doc("/exp/perez/demanda.pdf", "Cliente con DNI 12345678Z.", "pdf", 1000,
+                Instant.parse("2025-03-01T10:00:00Z"));
+        old.setExtractorVersion(2);
+        old.setOcrAvailable(true);
+        org.apache.lucene.document.Document entry = DocumentIndex.toLucene(old);
+        entry.removeFields(IndexFields.ENTITY);
+        entry.removeFields(IndexFields.DATA_TYPE);
+        entry.removeFields(IndexFields.ENTITIES_VERSION);
+        try (org.apache.lucene.store.FSDirectory dir = org.apache.lucene.store.FSDirectory.open(location);
+             org.apache.lucene.index.IndexWriter writer = new org.apache.lucene.index.IndexWriter(dir,
+                     new org.apache.lucene.index.IndexWriterConfig(new SpanishTextAnalyzer()))) {
+            writer.addDocument(entry);
+        }
+
+        try (DocumentIndex index = DocumentIndex.openForWriting(location)) {
+            assertThat(paths(index.search(withData("dni:12345678Z", List.of())))).isEmpty();
+
+            assertThat(index.refreshEntities(Path.of("/exp"), () -> false)).isEqualTo(1);
+
+            assertThat(paths(index.search(withData("dni:12345678Z", List.of()))))
+                    .containsExactly("/exp/perez/demanda.pdf");
+            FileState state = index.fileStates(null).get("/exp/perez/demanda.pdf");
+            assertThat(state.extractorVersion()).isEqualTo(2);
+            assertThat(state.ocrAvailable()).isTrue();
+            assertThat(state.hasText()).isTrue();
+            assertThat(index.preview("/exp/perez/demanda.pdf", null).text()).isEqualTo("Cliente con DNI 12345678Z.");
+            assertThat(index.refreshEntities(Path.of("/exp"), () -> false)).isZero();
+        }
+    }
 }

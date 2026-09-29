@@ -29,12 +29,13 @@ const API_ROUTES: Readonly<Record<string, ApiMethod>> = {
     '/api/stats': 'GET',
     '/api/search': 'POST',
     '/api/preview': 'POST',
+    '/api/report': 'POST',
     '/api/index': 'POST',
     '/api/index/status': 'GET',
     '/api/index/cancel': 'POST',
 };
 
-const ROUTES_WITH_BODY: ReadonlySet<string> = new Set(['/api/search', '/api/preview', '/api/index']);
+const ROUTES_WITH_BODY: ReadonlySet<string> = new Set(['/api/search', '/api/preview', '/api/report', '/api/index']);
 
 export function isAllowedApiRequest(request: unknown): request is ApiRequest {
     if (typeof request !== 'object' || request === null) return false;
@@ -50,6 +51,11 @@ export function isAllowedApiRequest(request: unknown): request is ApiRequest {
         const { path: docPath, query } = body as Record<string, unknown>;
         return typeof docPath === 'string' && docPath.length > 0 && docPath.length <= 4096
             && (query === undefined || typeof query === 'string');
+    }
+    if (reqPath === '/api/report') {
+        const { name, identifier } = body as Record<string, unknown>;
+        const optionalText = (value: unknown, max: number) => value === undefined || (typeof value === 'string' && value.length <= max);
+        return optionalText(name, 200) && optionalText(identifier, 100) && (name !== undefined || identifier !== undefined);
     }
     return true;
 }

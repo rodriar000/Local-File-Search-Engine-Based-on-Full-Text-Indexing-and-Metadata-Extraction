@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Search, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Search, Settings, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../../store/useAppStore';
 import { cn } from '../../lib/utils';
@@ -8,6 +8,7 @@ import { cn } from '../../lib/utils';
 const navItems = [
     { icon: LayoutDashboard, label: 'Inicio', path: '/' },
     { icon: Search, label: 'Buscar', path: '/search' },
+    { icon: ShieldCheck, label: 'Informe RGPD', path: '/rgpd' },
     { icon: Settings, label: 'Configuración', path: '/settings' },
 ];
 

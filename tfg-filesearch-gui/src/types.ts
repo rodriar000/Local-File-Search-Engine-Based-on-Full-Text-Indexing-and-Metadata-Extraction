@@ -8,6 +8,8 @@ export interface Document {
     content?: string;
     author?: string;
     title?: string;
+    /** Kinds of data found in the document (see shared/personalData.ts). */
+    dataTypes?: string[];
 }
 
 export interface SearchMetrics {
@@ -39,6 +41,10 @@ export interface SearchFilters {
     sizeMax?: number;
     dateFrom?: string;
     dateTo?: string;
+    /** Only documents containing this DNI, NIE, CIF, IBAN, phone, e-mail or case number. */
+    identifier?: string;
+    /** Only documents containing any of these kinds of data. */
+    dataTypes?: string[];
 }
 
 /** A document's text for the preview, with matches between highlight markers. */
@@ -53,6 +59,8 @@ export interface DocumentPreviewData {
     text: string;
     /** Only the beginning of a very long document is shown. */
     truncated: boolean;
+    /** Personal data in `text`. */
+    personalData?: import('./shared/personalData').PersonalDataSpan[];
 }
 
 export interface SyncReport {

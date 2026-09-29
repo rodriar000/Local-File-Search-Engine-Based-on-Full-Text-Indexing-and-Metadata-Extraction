@@ -25,6 +25,8 @@ public class Document {
     private boolean ocrAvailable;
     /** DocumentExtractor.VERSION that produced this document; older versions are re-extracted. */
     private int extractorVersion;
+    /** Kinds of data found in the text (EntityType keys), filled in when read from the index. */
+    private List<String> dataTypes;
     /** Why the content could not be read, if it could not; not stored in the index. */
     private String extractionError;
 
@@ -164,6 +166,14 @@ public class Document {
 
     public void setExtractorVersion(int extractorVersion) {
         this.extractorVersion = extractorVersion;
+    }
+
+    public List<String> getDataTypes() {
+        return dataTypes;
+    }
+
+    public void setDataTypes(List<String> dataTypes) {
+        this.dataTypes = dataTypes;
     }
 
     public String getExtractionError() {

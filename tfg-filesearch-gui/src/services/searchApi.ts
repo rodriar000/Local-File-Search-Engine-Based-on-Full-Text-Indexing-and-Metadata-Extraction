@@ -1,4 +1,5 @@
 import { DocumentPreviewData, IndexStats, IndexStatus, SearchFilters, SearchResult } from '../types';
+import { PersonalDataReport } from '../shared/personalData';
 
 /**
  * Client for the local search backend. Requests go through the main process,
@@ -46,8 +47,14 @@ async function apiRequest<T>(method: Method, path: string, body?: unknown): Prom
     return { status: response.status, data: response.data as T };
 }
 
+export const UNRECOGNISED_IDENTIFIER =
+    'No se reconoce el dato. Escribe un DNI, NIE, CIF, IBAN, teléfono, correo o número de procedimiento (por ejemplo, 456/2024). Comprueba la letra o los dígitos de control.';
+
 function assertOk(status: number, data: unknown, operation: string) {
     if (status >= 200 && status < 300) return;
+    if (status === 400 && (data as { error?: unknown } | null)?.error === 'unrecognised identifier') {
+        throw new Error(UNRECOGNISED_IDENTIFIER);
+    }
     const detail = typeof data === 'object' && data !== null && 'error' in data ? `: ${String((data as { error: unknown }).error)}` : '';
     throw new Error(`No se pudo ${operation} (HTTP ${status}${detail}).`);
 }
@@ -63,6 +70,8 @@ export interface SearchBody {
     sizeMaxBytes?: number;
     modifiedFrom?: string;
     modifiedTo?: string;
+    identifier?: string;
+    dataTypes?: string[];
     from: number;
     size: number;
 }
@@ -86,6 +95,8 @@ export function toSearchBody(query: string, filters: SearchFilters, from: number
         sizeMaxBytes: filters.sizeMax !== undefined ? Math.round(filters.sizeMax * MB) : undefined,
         modifiedFrom: filters.dateFrom ? dayStart(filters.dateFrom) : undefined,
         modifiedTo: filters.dateTo ? dayEnd(filters.dateTo) : undefined,
+        identifier: filters.identifier?.trim() || undefined,
+        dataTypes: filters.dataTypes?.length ? filters.dataTypes : undefined,
         from,
         size,
     };
@@ -102,6 +113,7 @@ export interface ApiHit {
     author?: string;
     score: number;
     snippet?: string;
+    dataTypes?: string[];
 }
 
 export interface ApiSearchResponse {
@@ -129,6 +141,7 @@ export function toSearchResult(response: ApiSearchResponse, query: string, filte
                 created_at: hit.createdAt,
                 title: hit.title,
                 author: hit.author,
+                dataTypes: hit.dataTypes,
             },
             highlight: hit.snippet ? { content: [hit.snippet] } : undefined,
         })),
@@ -146,6 +159,16 @@ export async function getPreview(path: string, query: string): Promise<DocumentP
     const { status, data } = await apiRequest<DocumentPreviewData>('POST', '/api/preview', { path, query });
     if (status === 404) throw new Error('Este documento ya no está en el índice. Actualiza el índice en Configuración.');
     assertOk(status, data, 'cargar la vista previa');
+    return data;
+}
+
+/** Every document that mentions a person, by full name and/or identifier. */
+export async function getPersonalDataReport(name: string, identifier: string): Promise<PersonalDataReport> {
+    const { status, data } = await apiRequest<PersonalDataReport>('POST', '/api/report', {
+        name: name.trim() || undefined,
+        identifier: identifier.trim() || undefined,
+    });
+    assertOk(status, data, 'preparar el informe');
     return data;
 }
 
