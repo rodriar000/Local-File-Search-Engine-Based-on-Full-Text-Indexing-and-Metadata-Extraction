@@ -8,6 +8,7 @@ import { normalizeIndexingStats, normalizeSearchStats } from './analytics'
 import { Backend } from './backend'
 import { BackendRuntime, resolveBackendRuntime } from './runtime'
 import { supportReport } from './support'
+import { isValidReport, reportCsv, reportFileName, reportHtml } from './report'
 import { canUpdateIndex, checkLicense, indexingLockedMessage, licenseState, LicenseDetails, LicenseState, MAX_LICENSE_CHARS } from './license'
 import { LICENSE_PUBLIC_KEY } from './license-key'
 
@@ -187,6 +188,31 @@ function createWindow() {
     }
 }
 
+/** Renders a page in a hidden window with scripts off and no network, and prints it to A4. */
+async function printToPdf(html: string): Promise<Buffer> {
+    const printer = new BrowserWindow({
+        show: false,
+        // Its own in-memory session, so blocking requests here does not affect the app window.
+        webPreferences: { javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'report-printer' },
+    })
+    try {
+        printer.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+            callback({ cancel: !details.url.startsWith('data:') })
+        })
+        await printer.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+        return await printer.webContents.printToPDF({
+            pageSize: 'A4',
+            printBackground: true,
+            margins: { marginType: 'custom', top: 0.6, bottom: 0.6, left: 0.5, right: 0.5 },
+            displayHeaderFooter: true,
+            headerTemplate: '<span></span>',
+            footerTemplate: '<div style="font-size:8px;width:100%;text-align:center;color:#666">Página <span class="pageNumber"></span> de <span class="totalPages"></span></div>',
+        })
+    } finally {
+        printer.destroy()
+    }
+}
+
 function registerIpcHandlers() {
     handle('open-path', async (_event, filePath: unknown) => {
         if (!isOpenableDocumentPath(filePath) || !(await isExistingFile(filePath))) {
@@ -221,6 +247,24 @@ function registerIpcHandlers() {
         await fs.writeFile(filePath, data, 'utf-8');
         return filePath;
     });
+
+    handle('report:export', async (_event, payload: unknown) => {
+        const { format, report } = (payload ?? {}) as Record<string, unknown>
+        if ((format !== 'csv' && format !== 'pdf') || !isValidReport(report)) {
+            throw new Error('Invalid report')
+        }
+        const { filePath } = await dialog.showSaveDialog(win!, {
+            defaultPath: reportFileName(report, format),
+            filters: [{ name: format.toUpperCase(), extensions: [format] }],
+        })
+        if (!filePath) return null
+        if (format === 'csv') {
+            await fs.writeFile(filePath, reportCsv(report), 'utf-8')
+        } else {
+            await fs.writeFile(filePath, await printToPdf(reportHtml(report)))
+        }
+        return filePath
+    })
 
     handle('select-folder', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog(win!, {

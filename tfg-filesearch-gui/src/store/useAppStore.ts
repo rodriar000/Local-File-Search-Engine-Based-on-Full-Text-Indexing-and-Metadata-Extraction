@@ -9,6 +9,9 @@ interface AppState {
     setIndexFolder: (folder: string | null) => void;
     darkMode: boolean;
     toggleDarkMode: () => void;
+    /** Mark DNI, IBAN, health data… in the preview. */
+    showPersonalData: boolean;
+    setShowPersonalData: (show: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -18,6 +21,8 @@ export const useAppStore = create<AppState>()(
             toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
             indexFolder: null,
             setIndexFolder: (indexFolder) => set({ indexFolder }),
+            showPersonalData: true,
+            setShowPersonalData: (showPersonalData) => set({ showPersonalData }),
             darkMode: false,
             toggleDarkMode: () => set((state) => {
                 const newMode = !state.darkMode;

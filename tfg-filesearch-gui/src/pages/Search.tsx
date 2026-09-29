@@ -8,6 +8,15 @@ import { cn } from '../lib/utils';
 import { stripHighlight } from '../shared/highlight';
 import { DocumentPreview } from '../components/search/DocumentPreview';
 
+/** Filters by kind of data; DNI and NIE go together because both identify a person. */
+const DATA_TYPE_FILTERS = [
+    { label: 'DNI o NIE', keys: ['dni', 'nie'] },
+    { label: 'IBAN', keys: ['iban'] },
+    { label: 'Teléfono', keys: ['telefono'] },
+    { label: 'Correo', keys: ['email'] },
+    { label: 'Datos de salud', keys: ['salud'] },
+];
+
 export const SearchPage: React.FC = () => {
     const {
         query, setQuery,
@@ -68,6 +77,16 @@ export const SearchPage: React.FC = () => {
 
     const extensions = ['pdf', 'docx', 'doc', 'msg', 'eml', 'zip', 'txt'];
 
+    const activeFilters = filters.extensions.length + (filters.identifier?.trim() ? 1 : 0)
+        + DATA_TYPE_FILTERS.filter(({ keys }) => keys.every(key => filters.dataTypes?.includes(key))).length;
+
+    const toggleDataType = (keys: string[]) => {
+        const current = filters.dataTypes ?? [];
+        const selected = keys.every(key => current.includes(key));
+        const next = selected ? current.filter(key => !keys.includes(key)) : [...current, ...keys];
+        setFilters({ ...filters, dataTypes: next });
+    };
+
     return (
         <div className="h-full flex flex-col">
             <div className="mb-8 space-y-4">
@@ -116,6 +135,9 @@ export const SearchPage: React.FC = () => {
                     >
                         <Filter className="w-4 h-4" />
                         Filtros
+                        {activeFilters > 0 && (
+                            <span className="ml-1 px-1.5 rounded-full bg-blue-600 text-white text-xs" aria-label={`${activeFilters} activos`}>{activeFilters}</span>
+                        )}
                     </button>
                 </div>
 
@@ -144,6 +166,40 @@ export const SearchPage: React.FC = () => {
                                             {ext.toUpperCase()}
                                         </button>
                                     ))}
+                                </div>
+
+                                <h3 className="text-sm font-medium text-gray-900 dark:text-white mt-5 mb-2">Contiene el dato</h3>
+                                <input
+                                    type="text"
+                                    value={filters.identifier ?? ''}
+                                    onChange={e => setFilters({ ...filters, identifier: e.target.value })}
+                                    placeholder="DNI, NIE, CIF, IBAN, teléfono, correo o nº de procedimiento (456/2024)"
+                                    aria-label="Contiene el dato"
+                                    maxLength={100}
+                                    className="w-full max-w-xl px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Da igual cómo esté escrito: 12.345.678-Z y 12345678z son el mismo DNI.</p>
+
+                                <h3 className="text-sm font-medium text-gray-900 dark:text-white mt-5 mb-2">Documentos con datos personales</h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {DATA_TYPE_FILTERS.map(({ label, keys }) => {
+                                        const selected = keys.every(key => filters.dataTypes?.includes(key));
+                                        return (
+                                            <button
+                                                key={label}
+                                                onClick={() => toggleDataType(keys)}
+                                                aria-pressed={selected}
+                                                className={cn(
+                                                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border",
+                                                    selected
+                                                        ? "bg-rose-600 text-white border-rose-600"
+                                                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
+                                                )}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </motion.div>

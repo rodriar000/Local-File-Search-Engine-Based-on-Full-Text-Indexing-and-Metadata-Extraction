@@ -1,9 +1,10 @@
 import React from 'react';
-import { FileText, Calendar, HardDrive, User, FileCode, FileJson, FileType, File, Mail, FileArchive, FileImage } from 'lucide-react';
+import { FileText, Calendar, HardDrive, User, FileCode, FileJson, FileType, File, Mail, FileArchive, FileImage, ShieldAlert } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { formatBytes } from '../../lib/utils';
 import { SearchResult } from '../../types';
 import { HighlightedText } from './HighlightedText';
+import { dataTypeLabel, PERSONAL_DATA_TYPES } from '../../shared/personalData';
 
 interface ResultCardProps {
     hit: SearchResult['hits'][0];
@@ -35,6 +36,7 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
     // Highlights carry marker characters, never HTML; see shared/highlight.ts
     const contentPreview = highlight?.content?.[0] ?? (doc.content ? doc.content.substring(0, 200) + '...' : '');
     const titlePreview = highlight?.title?.[0] ?? (doc.title || doc.filename);
+    const personalData = (doc.dataTypes ?? []).filter(type => PERSONAL_DATA_TYPES.has(type));
 
     return (
         <motion.div
@@ -81,6 +83,17 @@ export const ResultCard = React.forwardRef<HTMLDivElement, ResultCardProps>(({ h
                     <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-2 font-serif">
                         <HighlightedText fragment={contentPreview} />
                     </p>
+
+                    {personalData.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5" title="Datos personales que aparecen en el documento">
+                            <ShieldAlert className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+                            {personalData.map(type => (
+                                <span key={type} className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-900/20 dark:text-rose-300 dark:border-rose-800">
+                                    {dataTypeLabel(type)}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </motion.div>

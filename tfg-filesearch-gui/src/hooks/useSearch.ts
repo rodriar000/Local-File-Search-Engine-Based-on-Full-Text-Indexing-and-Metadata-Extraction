@@ -13,7 +13,8 @@ export function useSearch() {
     const latestRequest = useRef(0);
 
     useEffect(() => {
-        if (!query.trim() && filters.extensions.length === 0) {
+        const filtering = filters.extensions.length > 0 || !!filters.identifier?.trim() || !!filters.dataTypes?.length;
+        if (!query.trim() && !filtering) {
             latestRequest.current++;
             setResults(null);
             setError(null);

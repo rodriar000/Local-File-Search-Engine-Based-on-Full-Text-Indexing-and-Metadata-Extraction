@@ -31,6 +31,16 @@ describe('toSearchBody', () => {
     });
 });
 
+describe('toSearchBody with personal data filters', () => {
+    it('sends the identifier as typed and the kinds of data', () => {
+        const body = toSearchBody('', { extensions: [], identifier: ' 12.345.678-Z ', dataTypes: ['dni', 'nie'] }, 0, 20);
+        expect(body.identifier).toBe('12.345.678-Z');
+        expect(body.dataTypes).toEqual(['dni', 'nie']);
+        const empty = toSearchBody('', { extensions: [], identifier: '  ', dataTypes: [] }, 0, 20);
+        expect(JSON.parse(JSON.stringify(empty))).toEqual({ query: '', extensions: [], from: 0, size: 20 });
+    });
+});
+
 describe('toSearchResult', () => {
     it('maps backend hits to what the result list shows', () => {
         const result = toSearchResult({

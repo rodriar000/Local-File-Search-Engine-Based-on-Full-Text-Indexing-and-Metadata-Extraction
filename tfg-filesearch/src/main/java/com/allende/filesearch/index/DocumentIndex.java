@@ -1,5 +1,7 @@
 package com.allende.filesearch.index;
 
+import com.allende.filesearch.entities.EntityExtractor;
+import com.allende.filesearch.entities.EntityType;
 import com.allende.filesearch.model.Document;
 import com.allende.filesearch.model.SearchResult;
 import org.apache.lucene.analysis.Analyzer;
@@ -55,12 +57,15 @@ import java.text.BreakIterator;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 
 /**
  * Embedded full-text index of the user's documents (Apache Lucene), stored in a
@@ -92,7 +97,14 @@ public final class DocumentIndex implements Closeable {
     private static final Set<String> RESULT_FIELDS = Set.of(
             IndexFields.PATH, IndexFields.FILENAME, IndexFields.EXTENSION, IndexFields.SIZE,
             IndexFields.CREATED_AT, IndexFields.MODIFIED_AT, IndexFields.CHECKSUM, IndexFields.LANGUAGE,
-            IndexFields.AUTHOR, IndexFields.TITLE, IndexFields.LAST_INDEXED_AT);
+            IndexFields.AUTHOR, IndexFields.TITLE, IndexFields.LAST_INDEXED_AT, IndexFields.DATA_TYPE);
+
+    /** Most documents listed in one RGPD report. */
+    public static final int MAX_REPORT_DOCUMENTS = 10_000;
+    /** Personal data marked in one preview. */
+    static final int MAX_PREVIEW_SPANS = 5_000;
+    /** Rewritten entries between commits while updating the entities of an older index. */
+    private static final int REFRESH_COMMIT_EVERY = 200;
 
     /** Content is stored (for snippets) and indexed with offsets (for fast highlighting). */
     private static final FieldType CONTENT_TYPE;
@@ -297,7 +309,190 @@ public final class DocumentIndex implements Closeable {
             if (text == null || text.isEmpty()) {
                 text = truncated ? content.substring(0, PREVIEW_MAX_CHARS) : content;
             }
-            return new DocumentPreview(doc, text, truncated);
+            return new DocumentPreview(doc, text, truncated, personalData(text));
+        } finally {
+            searcherManager.release(searcher);
+        }
+    }
+
+    /** One document of an RGPD report and why it is listed. */
+    public record ReportEntry(Document document, boolean byName, boolean byIdentifier) {
+    }
+
+    /**
+     * @param total     documents that mention the person
+     * @param truncated true when more than {@link #MAX_REPORT_DOCUMENTS} did and only those are listed
+     */
+    public record Report(long total, boolean truncated, List<ReportEntry> entries) {
+    }
+
+    /**
+     * Every document that mentions a person, for a data subject's access or
+     * erasure request: those containing the exact name and those containing the
+     * identifier. At least one of them must be given. Listed by path.
+     *
+     * @param name       full name, searched as an exact phrase (ignoring case and accents), or null
+     * @param entityTerm identifier as an index term such as "dni:12345678Z", or null
+     */
+    public Report report(String name, String entityTerm) throws IOException {
+        refreshReadOnlyView();
+        boolean hasName = name != null && !name.isBlank();
+        boolean hasIdentifier = entityTerm != null && !entityTerm.isBlank();
+        if (!hasName && !hasIdentifier) {
+            throw new IllegalArgumentException("name or identifier required");
+        }
+        if (searcherManager == null) {
+            return new Report(0, false, List.of());
+        }
+        Query byName = new MatchNoDocsQuery();
+        if (hasName) {
+            SimpleQueryParser parser = new SimpleQueryParser(analyzer, QUERY_FIELD_WEIGHTS);
+            Query parsed = parser.parse("\"" + name.replace('"', ' ').strip() + "\"");
+            byName = parsed != null ? parsed : byName;
+        }
+        Query byIdentifier = hasIdentifier ? new TermQuery(new Term(IndexFields.ENTITY, entityTerm)) : new MatchNoDocsQuery();
+        Query either = new BooleanQuery.Builder()
+                .add(byName, BooleanClause.Occur.SHOULD)
+                .add(byIdentifier, BooleanClause.Occur.SHOULD)
+                .build();
+
+        IndexSearcher searcher = searcherManager.acquire();
+        try {
+            Set<Integer> nameDocs = docIds(searcher, byName);
+            Set<Integer> identifierDocs = docIds(searcher, byIdentifier);
+            long total = searcher.count(either);
+            Set<Integer> all = new java.util.TreeSet<>(nameDocs);
+            all.addAll(identifierDocs);
+            StoredFields stored = searcher.storedFields();
+            List<ReportEntry> entries = new ArrayList<>(all.size());
+            for (int doc : all) {
+                entries.add(new ReportEntry(fromLucene(stored.document(doc, RESULT_FIELDS)),
+                        nameDocs.contains(doc), identifierDocs.contains(doc)));
+            }
+            entries.sort(Comparator.comparing(entry -> entry.document().getPath()));
+            if (entries.size() > MAX_REPORT_DOCUMENTS) {
+                entries = new ArrayList<>(entries.subList(0, MAX_REPORT_DOCUMENTS));
+            }
+            return new Report(total, total > entries.size(), entries);
+        } finally {
+            searcherManager.release(searcher);
+        }
+    }
+
+    private static Set<Integer> docIds(IndexSearcher searcher, Query query) throws IOException {
+        Set<Integer> ids = new java.util.HashSet<>();
+        for (ScoreDoc hit : searcher.search(query, MAX_REPORT_DOCUMENTS).scoreDocs) {
+            ids.add(hit.doc);
+        }
+        return ids;
+    }
+
+    /**
+     * Personal data in a preview text (DNI, IBAN, phones, health words…), as
+     * positions in that same text, which may contain highlight markers.
+     */
+    static List<DocumentPreview.PersonalData> personalData(String text) {
+        StringBuilder plain = new StringBuilder(text.length());
+        int[] original = new int[text.length() + 1];
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == HIGHLIGHT_PRE.charAt(0) || c == HIGHLIGHT_POST.charAt(0)) {
+                continue;
+            }
+            original[plain.length()] = i;
+            plain.append(c);
+        }
+        List<DocumentPreview.PersonalData> spans = new ArrayList<>();
+        for (EntityExtractor.Entity entity : EntityExtractor.find(plain.toString())) {
+            if (!entity.type().personal()) {
+                continue;
+            }
+            spans.add(new DocumentPreview.PersonalData(original[entity.start()], original[entity.end() - 1] + 1,
+                    entity.type().key()));
+            if (spans.size() >= MAX_PREVIEW_SPANS) {
+                break;
+            }
+        }
+        return spans;
+    }
+
+    private record StaleEntry(String path, boolean ocrAvailable, int extractorVersion) {
+    }
+
+    /**
+     * Finds identifiers again in entries under {@code root} analysed by an older
+     * {@link EntityExtractor}, from the text already in the index, so documents
+     * do not have to be read (or OCR'd) again.
+     *
+     * @return number of entries updated
+     */
+    public int refreshEntities(Path root, BooleanSupplier cancelled) throws IOException {
+        refreshReadOnlyView();
+        if (searcherManager == null) {
+            return 0;
+        }
+        String prefix = root == null ? null : withTrailingSeparator(root.toAbsolutePath().normalize().toString());
+        List<StaleEntry> stale = new ArrayList<>();
+        IndexSearcher searcher = searcherManager.acquire();
+        try {
+            for (LeafReaderContext leaf : searcher.getIndexReader().leaves()) {
+                LeafReader reader = leaf.reader();
+                Bits live = reader.getLiveDocs();
+                StoredFields stored = reader.storedFields();
+                NumericDocValues entities = DocValues.getNumeric(reader, IndexFields.ENTITIES_VERSION);
+                NumericDocValues versions = DocValues.getNumeric(reader, IndexFields.EXTRACTOR_VERSION);
+                NumericDocValues ocr = DocValues.getNumeric(reader, IndexFields.OCR_AVAILABLE);
+                for (int doc = 0; doc < reader.maxDoc(); doc++) {
+                    if ((live != null && !live.get(doc))
+                            || (entities.advanceExact(doc) && entities.longValue() >= EntityExtractor.VERSION)) {
+                        continue;
+                    }
+                    String path = stored.document(doc, Set.of(IndexFields.PATH)).get(IndexFields.PATH);
+                    if (path == null || (prefix != null && !path.startsWith(prefix))) {
+                        continue;
+                    }
+                    int version = versions.advanceExact(doc) ? (int) versions.longValue() : 0;
+                    stale.add(new StaleEntry(path, ocr.advanceExact(doc) && ocr.longValue() == 1, version));
+                }
+            }
+        } finally {
+            searcherManager.release(searcher);
+        }
+
+        int updated = 0;
+        for (StaleEntry entry : stale) {
+            if (cancelled.getAsBoolean()) {
+                break;
+            }
+            Document doc = storedDocument(entry.path());
+            if (doc == null) {
+                continue;
+            }
+            doc.setOcrAvailable(entry.ocrAvailable());
+            doc.setExtractorVersion(entry.extractorVersion());
+            upsert(doc);
+            if (++updated % REFRESH_COMMIT_EVERY == 0) {
+                commit();
+            }
+        }
+        if (updated > 0) {
+            commit();
+        }
+        return updated;
+    }
+
+    /** An indexed entry with its text, as last committed. */
+    private Document storedDocument(String path) throws IOException {
+        IndexSearcher searcher = searcherManager.acquire();
+        try {
+            TopDocs found = searcher.search(new TermQuery(new Term(IndexFields.PATH, path)), 1);
+            if (found.scoreDocs.length == 0) {
+                return null;
+            }
+            org.apache.lucene.document.Document stored = searcher.storedFields().document(found.scoreDocs[0].doc);
+            Document doc = fromLucene(stored);
+            doc.setContent(stored.get(IndexFields.CONTENT));
+            return doc;
         } finally {
             searcherManager.release(searcher);
         }
@@ -361,6 +556,13 @@ public final class DocumentIndex implements Closeable {
             builder.add(LongPoint.newRangeQuery(IndexFields.MODIFIED_AT,
                     request.modifiedFrom() != null ? request.modifiedFrom().toEpochMilli() : Long.MIN_VALUE,
                     request.modifiedTo() != null ? request.modifiedTo().toEpochMilli() : Long.MAX_VALUE), BooleanClause.Occur.FILTER);
+        }
+        if (request.entity() != null) {
+            builder.add(new TermQuery(new Term(IndexFields.ENTITY, request.entity())), BooleanClause.Occur.FILTER);
+        }
+        if (!request.dataTypes().isEmpty()) {
+            List<BytesRef> types = request.dataTypes().stream().map(BytesRef::new).toList();
+            builder.add(new TermInSetQuery(IndexFields.DATA_TYPE, types), BooleanClause.Occur.FILTER);
         }
         return builder.build();
     }
@@ -471,6 +673,17 @@ public final class DocumentIndex implements Closeable {
         out.add(new NumericDocValuesField(IndexFields.HAS_TEXT, hasText ? 1 : 0));
         out.add(new NumericDocValuesField(IndexFields.OCR_AVAILABLE, doc.isOcrAvailable() ? 1 : 0));
         out.add(new NumericDocValuesField(IndexFields.EXTRACTOR_VERSION, doc.getExtractorVersion()));
+
+        List<EntityExtractor.Entity> entities = EntityExtractor.find(entityText(doc));
+        for (String term : EntityExtractor.terms(entities)) {
+            out.add(new StringField(IndexFields.ENTITY, term, Field.Store.NO));
+        }
+        EnumSet<EntityType> types = EnumSet.noneOf(EntityType.class);
+        entities.forEach(entity -> types.add(entity.type()));
+        for (EntityType type : types) {
+            out.add(new StringField(IndexFields.DATA_TYPE, type.key(), Field.Store.YES));
+        }
+        out.add(new NumericDocValuesField(IndexFields.ENTITIES_VERSION, EntityExtractor.VERSION));
         return out;
     }
 
@@ -487,7 +700,13 @@ public final class DocumentIndex implements Closeable {
         doc.setLanguage(stored.get(IndexFields.LANGUAGE));
         doc.setTitle(stored.get(IndexFields.TITLE));
         doc.setAuthor(stored.get(IndexFields.AUTHOR));
+        doc.setDataTypes(List.of(stored.getValues(IndexFields.DATA_TYPE)));
         return doc;
+    }
+
+    private static String entityText(Document doc) {
+        String content = nullToEmpty(doc.getContent());
+        return doc.getTitle() == null ? content : doc.getTitle() + "\n" + content;
     }
 
     private static void addLong(org.apache.lucene.document.Document out, String name, long value) {

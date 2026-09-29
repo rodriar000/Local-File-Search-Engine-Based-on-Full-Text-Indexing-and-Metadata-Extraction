@@ -137,6 +137,15 @@ npm run dev
 
 This opens the Electron window, which starts the backend from step 4.1 (with the Java runtime from `bundle-runtime.sh` if it was run, otherwise Java 17+ from the `PATH`; set `FILESEARCH_JAR` or `FILESEARCH_JAVA` to use other locations). From **Settings**, choose the documents folder and press **Index Now**; afterwards the app catches up with changes every time it starts. Clicking a result opens a preview of its text with every match highlighted (Enter / Shift+Enter jump between matches); **Open** opens the file itself. Search needs the desktop app: the plain browser preview has no backend.
 
+### 5.3 Personal data and RGPD reports
+While indexing, the engine finds DNI, NIE and CIF numbers (checking their control character), IBANs (mod 97), Spanish phone numbers, e-mail addresses, case numbers after words such as *procedimiento* or *autos* ("456/2024"), and words that point to health data. The rules are in `EntityExtractor`; no model or network is involved. In the app:
+
+- **Search > Filtros > Contiene el dato** finds the documents that contain an identifier however it is written (`12.345.678-Z` = `12345678z`), and the chips below keep only documents with a DNI/NIE, IBAN, phone, e-mail or health data.
+- Results show which kinds of personal data a document holds, and the preview marks them (can be switched off).
+- **Informe RGPD** lists every document that contains a person's exact full name and/or identifier, for access and erasure requests, and saves it as PDF or CSV.
+
+Indexes built by earlier versions are updated from the text they already hold the next time the index is updated; files are not read again.
+
 ## 6. Benchmarks
 
 `scripts/benchmark.ps1` rebuilds the index of a dataset several times and runs a set of queries, keeping its index apart from yours. For query latency only, use the CLI:

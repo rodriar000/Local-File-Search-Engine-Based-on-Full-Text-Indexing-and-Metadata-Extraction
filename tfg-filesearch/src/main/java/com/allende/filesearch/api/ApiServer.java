@@ -1,6 +1,8 @@
 package com.allende.filesearch.api;
 
 import com.allende.filesearch.analytics.AnalyticsManager;
+import com.allende.filesearch.entities.EntityExtractor;
+import com.allende.filesearch.entities.EntityType;
 import com.allende.filesearch.index.DocumentIndex;
 import com.allende.filesearch.index.DocumentPreview;
 import com.allende.filesearch.index.IndexSynchronizer;
@@ -127,6 +129,7 @@ public final class ApiServer implements AutoCloseable {
             case "GET /api/stats" -> send(exchange, 200, index.summary());
             case "POST /api/search" -> send(exchange, 200, search(readJson(exchange, SearchBody.class)));
             case "POST /api/preview" -> preview(exchange, readJson(exchange, PreviewBody.class));
+            case "POST /api/report" -> send(exchange, 200, report(readJson(exchange, ReportBody.class)));
             case "POST /api/index" -> startIndexing(exchange, readJson(exchange, IndexBody.class));
             case "GET /api/index/status" -> send(exchange, 200, indexing.status());
             case "POST /api/index/cancel" -> {
@@ -151,7 +154,12 @@ public final class ApiServer implements AutoCloseable {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SearchBody(String query, List<String> extensions, Long sizeMinBytes, Long sizeMaxBytes,
-            Instant modifiedFrom, Instant modifiedTo, Integer from, Integer size) {
+            Instant modifiedFrom, Instant modifiedTo, String identifier, List<String> dataTypes,
+            Integer from, Integer size) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ReportBody(String name, String identifier) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -163,7 +171,8 @@ public final class ApiServer implements AutoCloseable {
     }
 
     record PreviewResponse(String path, String filename, String extension, long size, Instant modifiedAt,
-            String title, String author, String text, boolean truncated) {
+            String title, String author, String text, boolean truncated,
+            List<DocumentPreview.PersonalData> personalData) {
     }
 
     /** Text of an indexed document; paths that are not in the index are refused, so no other file can be read. */
@@ -183,12 +192,13 @@ public final class ApiServer implements AutoCloseable {
         }
         Document doc = preview.document();
         send(exchange, 200, new PreviewResponse(doc.getPath(), doc.getFilename(), doc.getExtension(), doc.getSize(),
-                doc.getModifiedAt(), doc.getTitle(), doc.getAuthor(), preview.text(), preview.truncated()));
+                doc.getModifiedAt(), doc.getTitle(), doc.getAuthor(), preview.text(), preview.truncated(),
+                preview.personalData()));
     }
 
     /** One result as the app shows it; never the full document text. */
     record Hit(String path, String filename, String extension, long size, Instant modifiedAt, Instant createdAt,
-            String title, String author, double score, String snippet) {
+            String title, String author, double score, String snippet, List<String> dataTypes) {
     }
 
     record SearchResponse(long totalHits, long tookMs, List<Hit> hits) {
@@ -198,8 +208,10 @@ public final class ApiServer implements AutoCloseable {
         if (body == null) {
             throw new BadRequest("missing body");
         }
+        EntityExtractor.Entity identifier = identifier(body.identifier());
         SearchRequest request = new SearchRequest(body.query(), body.extensions(), body.sizeMinBytes(),
                 body.sizeMaxBytes(), body.modifiedFrom(), body.modifiedTo(),
+                identifier == null ? null : identifier.term(), dataTypes(body.dataTypes()),
                 body.from() == null ? 0 : body.from(), body.size() == null ? 20 : body.size());
         SearchResult result;
         try {
@@ -222,7 +234,78 @@ public final class ApiServer implements AutoCloseable {
                 ? hit.getHighlights().get(0)
                 : null;
         return new Hit(doc.getPath(), doc.getFilename(), doc.getExtension(), doc.getSize(), doc.getModifiedAt(),
-                doc.getCreatedAt(), doc.getTitle(), doc.getAuthor(), hit.getScore(), snippet);
+                doc.getCreatedAt(), doc.getTitle(), doc.getAuthor(), hit.getScore(), snippet, doc.getDataTypes());
+    }
+
+    /** What the user typed as an identifier; refused when it is not one, so a typo does not look like "no documents". */
+    private static EntityExtractor.Entity identifier(String typed) {
+        if (typed == null || typed.isBlank()) {
+            return null;
+        }
+        if (typed.length() > 100) {
+            throw new BadRequest("unrecognised identifier");
+        }
+        EntityExtractor.Entity entity = EntityExtractor.parseIdentifier(typed);
+        if (entity == null) {
+            throw new BadRequest("unrecognised identifier");
+        }
+        return entity;
+    }
+
+    private static List<String> dataTypes(List<String> keys) {
+        if (keys == null) {
+            return List.of();
+        }
+        for (String key : keys) {
+            if (EntityType.fromKey(key).isEmpty()) {
+                throw new BadRequest("unknown data type");
+            }
+        }
+        return keys;
+    }
+
+    record ReportDocument(String path, String filename, String extension, Instant modifiedAt,
+            boolean byName, boolean byIdentifier, List<String> dataTypes) {
+    }
+
+    /**
+     * @param identifier     the identifier as normalised, e.g. "12345678Z"
+     * @param identifierType its kind (EntityType key)
+     */
+    record ReportResponse(String name, String identifier, String identifierType, Instant generatedAt,
+            long total, boolean truncated, List<ReportDocument> documents) {
+    }
+
+    /** Documents that mention a person, for RGPD requests. Not recorded in the search statistics. */
+    private ReportResponse report(ReportBody body) throws IOException {
+        if (body == null) {
+            throw new BadRequest("missing body");
+        }
+        String name = body.name() == null ? null : body.name().strip().replaceAll("\\s+", " ");
+        if (name != null && name.isEmpty()) {
+            name = null;
+        }
+        if (name != null && (name.length() < 3 || name.length() > 200)) {
+            throw new BadRequest("invalid name");
+        }
+        EntityExtractor.Entity identifier = identifier(body.identifier());
+        if (name == null && identifier == null) {
+            throw new BadRequest("name or identifier required");
+        }
+        DocumentIndex.Report report;
+        try {
+            report = index.report(name, identifier == null ? null : identifier.term());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequest("invalid search");
+        }
+        List<ReportDocument> documents = report.entries().stream().map(entry -> {
+            Document doc = entry.document();
+            return new ReportDocument(doc.getPath(), doc.getFilename(), doc.getExtension(), doc.getModifiedAt(),
+                    entry.byName(), entry.byIdentifier(), doc.getDataTypes());
+        }).toList();
+        return new ReportResponse(name, identifier == null ? null : identifier.value(),
+                identifier == null ? null : identifier.type().key(), Instant.now(),
+                report.total(), report.truncated(), documents);
     }
 
     private void startIndexing(HttpExchange exchange, IndexBody body) throws IOException {

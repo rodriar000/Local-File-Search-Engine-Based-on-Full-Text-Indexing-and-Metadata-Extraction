@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, FolderOpen, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, FolderOpen, ShieldAlert, X } from 'lucide-react';
 import { getPreview } from '../../services/searchApi';
 import { DocumentPreviewData } from '../../types';
 import { formatBytes } from '../../lib/utils';
-import { HighlightedText } from './HighlightedText';
+import { PreviewText } from './HighlightedText';
+import { useAppStore } from '../../store/useAppStore';
 
 interface DocumentPreviewProps {
     path: string;
@@ -22,6 +23,8 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({ path, query, o
     const [matchCount, setMatchCount] = useState(0);
     const [current, setCurrent] = useState(0);
     const textRef = useRef<HTMLDivElement>(null);
+    const { showPersonalData, setShowPersonalData } = useAppStore();
+    const personalData = preview?.personalData ?? [];
 
     useEffect(() => {
         let cancelled = false;
@@ -97,17 +100,29 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({ path, query, o
                 </button>
             </header>
 
-            {matchCount > 0 && (
-                <div className="flex items-center justify-between px-4 py-2 text-sm text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-gray-800">
-                    <span>Coincidencia {current + 1} de {matchCount}</span>
-                    <div className="flex gap-1">
+            {(matchCount > 0 || personalData.length > 0) && (
+                <div className="flex items-center justify-between gap-4 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-gray-800">
+                    {matchCount > 0 ? <span>Coincidencia {current + 1} de {matchCount}</span> : <span />}
+                    {personalData.length > 0 && (
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-rose-700 dark:text-rose-300">
+                            <input
+                                type="checkbox"
+                                checked={showPersonalData}
+                                onChange={e => setShowPersonalData(e.target.checked)}
+                                className="accent-rose-600"
+                            />
+                            <ShieldAlert className="w-4 h-4" aria-hidden="true" />
+                            Resaltar datos personales ({personalData.length}{personalData.length >= 5000 ? '+' : ''})
+                        </label>
+                    )}
+                    {matchCount > 0 && <div className="flex gap-1">
                         <button onClick={() => goTo(current - 1)} aria-label="Coincidencia anterior" className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
                             <ChevronUp className="w-4 h-4" />
                         </button>
                         <button onClick={() => goTo(current + 1)} aria-label="Coincidencia siguiente" className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
                             <ChevronDown className="w-4 h-4" />
                         </button>
-                    </div>
+                    </div>}
                 </div>
             )}
 
@@ -121,7 +136,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({ path, query, o
                 )}
                 {preview && preview.text.trim() !== '' && (
                     <div ref={textRef} className="whitespace-pre-wrap break-words font-serif text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
-                        <HighlightedText fragment={preview.text} />
+                        <PreviewText text={preview.text} personalData={personalData} showPersonalData={showPersonalData} />
                     </div>
                 )}
                 {preview?.truncated && (
